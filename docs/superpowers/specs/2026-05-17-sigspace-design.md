@@ -1,6 +1,6 @@
 # SIGSPACE — Design Spec
 **Date:** 2026-05-17
-**Project:** blitzandres/sigspace (new private repo)
+**Project:** blitzandres/sigspace (public repo — keys stored in GitHub Secrets, never in code)
 **Thesis companion:** blitzandres/signet-thesis
 **Related:** blitzandres/bluth-scan, blitzandres/netwatch
 
@@ -18,19 +18,30 @@ This is the playable frontend of the SIGNET thesis — the first 0.01% made visi
 
 ## 2. Technical Architecture
 
+### Hosting Philosophy
+**Zero local hardware.** Everything runs on free-tier cloud infrastructure. The user's machine is only used to write and push code. All serving, proxying, and key storage happens externally.
+
 ### Stack
+| Layer | Service | Free tier | Deploy method |
+|-------|---------|-----------|--------------|
+| Game frontend | **GitHub Pages** | Free on public repos | `git push` via `gh` CLI |
+| API proxy / backend | **Cloudflare Workers** | 100k req/day free | Cloudflare MCP + `wrangler` CLI |
+| Secret storage | **GitHub Secrets** | Free | `gh secret set` CLI |
+| DNS / CDN | **Cloudflare** (auto via Workers) | Free | Via MCP |
+
 - **Single `index.html`** — all HTML, CSS, JS inline. No npm, no build step, no frameworks.
 - **HTML5 Canvas 2D** — game loop via `requestAnimationFrame`, ~60fps, ~30–50MB RAM.
-- **GitHub Pages** — static hosting, instant deploy via `git push`. Free, zero-config.
-- **Public APIs** — all data fetched client-side. No server required.
+- **Cloudflare Worker** acts as a thin CORS proxy + API key injector — game calls `worker.sigspace.workers.dev/api/*`, worker fetches real APIs with keys from its environment vars. Keys never leave Cloudflare.
+- **No local server ever required** — game works fully from GitHub Pages + Cloudflare.
 
 ### Files
 ```
 sigspace/
 ├── index.html             ← entire game (Canvas 2D engine + all logic)
+├── worker/
+│   └── index.js           ← Cloudflare Worker (CORS proxy + key injector)
 ├── project_index.json     ← AI session checkpoint + feature board
-├── apikeys.example.json   ← key shape template (committed, no real values)
-├── apikeys.json           ← real keys (gitignored, local only)
+├── SETUP.md               ← one-time setup: gh secrets + wrangler deploy
 ├── .gitignore
 ├── README.md
 └── docs/
@@ -40,9 +51,10 @@ sigspace/
 ```
 
 ### Repo visibility
-- Repo: **private** (`blitzandres/sigspace`)
-- GitHub Pages enabled on `main` branch — **requires GitHub Pro for private repos** ($4/mo). If not on Pro, make the repo public (safe — `apikeys.json` is gitignored, no secrets in code).
-- `apikeys.json` in `.gitignore` — keys never committed even to private repo
+- Repo: **public** (`blitzandres/sigspace`) — safe because zero keys in code
+- GitHub Pages: free, enabled on `main` branch via repo settings
+- API keys stored in **Cloudflare Worker environment variables** (set via `wrangler secret put` or Cloudflare MCP — never written to any file)
+- `SETUP.md` documents which secrets to set, not their values
 
 ---
 
@@ -165,14 +177,23 @@ Every Claude session starts by reading this file. Every session ends with it upd
       ]
     },
     "phase_7_deploy": {
-      "name": "GitHub Pages deploy + repo setup",
+      "name": "Full deploy: GitHub Pages + Cloudflare Worker + secrets",
       "status": "pending",
       "tasks": [
-        { "id": "7.1", "done": false, "name": "Init git repo, push to blitzandres/sigspace (private)" },
-        { "id": "7.2", "done": false, "name": "Enable GitHub Pages on main branch" },
-        { "id": "7.3", "done": false, "name": "Add .gitignore (apikeys.json, .env, __pycache__)" },
-        { "id": "7.4", "done": false, "name": "Commit apikeys.example.json" }
+        { "id": "7.1", "done": false, "name": "Create public repo blitzandres/sigspace via gh CLI" },
+        { "id": "7.2", "done": false, "name": "Push main branch, enable GitHub Pages via gh API" },
+        { "id": "7.3", "done": false, "name": "Deploy Cloudflare Worker via Cloudflare MCP or wrangler CLI" },
+        { "id": "7.4", "done": false, "name": "Set IPINFO_TOKEN + ABUSEIPDB_KEY as Worker secrets (wrangler secret put)" },
+        { "id": "7.5", "done": false, "name": "Wire game fetch calls to Worker URL" },
+        { "id": "7.6", "done": false, "name": "Smoke test: game loads on GitHub Pages URL, all 5 realms fetch real data" }
       ]
+    },
+    "infrastructure": {
+      "frontend_url": "https://blitzandres.github.io/sigspace",
+      "worker_url": "https://sigspace.blitzandres.workers.dev",
+      "mcp_tools_used": ["mcp__claude_ai_Cloudflare_Developer_Platform__authenticate", "mcp__claude_ai_Cloudflare_Developer_Platform__complete_authentication"],
+      "cli_tools_used": ["gh", "wrangler"],
+      "all_free_tier": true
     }
   }
 }
@@ -180,20 +201,31 @@ Every Claude session starts by reading this file. Every session ends with it upd
 
 ---
 
-## 6. API Keys
+## 6. API Keys — Zero Local Storage
 
 ### Keys needed
-| Key | Service | Free tier | Where used |
-|-----|---------|-----------|-----------|
-| `ipinfo_token` | ipinfo.io | 50k req/month | TOPOLOGY enrichment (richer data) |
-| `abuseipdb_key` | AbuseIPDB | 1k req/day | THREAT realm |
-| *(none)* | ip-api.com | 45 req/min, no key | CARRIER primary + TOPOLOGY basic geo |
-| *(none)* | Cloudflare DoH | Unlimited, no key | STREAM realm |
+| Secret name | Service | Free tier | Storage location |
+|-------------|---------|-----------|-----------------|
+| `IPINFO_TOKEN` | ipinfo.io | 50k req/month | Cloudflare Worker env var |
+| `ABUSEIPDB_KEY` | AbuseIPDB | 1k req/day | Cloudflare Worker env var |
+| *(none)* | ip-api.com | 45 req/min, no key | Called directly from browser |
+| *(none)* | Cloudflare DoH | Unlimited, no key | Called directly from browser |
 
-### Storage rule
-- `apikeys.example.json` committed to repo showing the shape with empty strings
-- `apikeys.json` in `.gitignore` — filled locally, read by `fetch('apikeys.json')` at game load
-- Keys are read once at startup and stored in a JS module-scope object — never logged, never sent anywhere except their respective APIs
+### How it works
+1. Game (`index.html`) calls `https://sigspace.USERNAME.workers.dev/api/ipinfo?ip=X`
+2. Cloudflare Worker receives the request, injects `IPINFO_TOKEN` from its env, calls ipinfo.io, returns result
+3. Key is **inside Cloudflare's infrastructure** — never in the repo, never in the browser
+
+### One-time setup (CLI)
+```bash
+# Set secrets on the Worker — done once, persists forever
+wrangler secret put IPINFO_TOKEN
+wrangler secret put ABUSEIPDB_KEY
+
+# Or via Cloudflare MCP in Claude Code
+```
+
+### No `apikeys.json` file — keys never touch the filesystem
 
 ---
 
