@@ -233,13 +233,134 @@
 
       ctx.restore();
     }
-    function drawDial() {}
-    function drawGlitch() {}
+    function drawDial() {
+      const col = S.freqColors[S.freq];
+      const dialY = S.H - 60;
+      const dialW = 320;
+      const dialX = S.cx - dialW / 2;
+      const notchW = dialW / 5;
+
+      ctx.save();
+
+      // dial background
+      ctx.fillStyle = 'rgba(4,8,15,0.85)';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.shadowBlur = 10; ctx.shadowColor = col;
+      roundRect(ctx, dialX - 10, dialY - 18, dialW + 20, 52, 6);
+      ctx.fill(); ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // frequency label (big, above dial)
+      ctx.font = 'bold 13px monospace';
+      ctx.fillStyle = col;
+      ctx.textAlign = 'center';
+      ctx.shadowBlur = 8; ctx.shadowColor = col;
+      ctx.fillText(`FREQ: ${S.freqNames[S.freq]}`, S.cx, dialY - 28);
+      ctx.shadowBlur = 0;
+
+      // notch marks
+      for (let i = 0; i < 5; i++) {
+        const nx = dialX + notchW * i + notchW / 2;
+        const active = i === S.freq;
+        ctx.fillStyle = active ? col : 'rgba(100,140,180,0.4)';
+        ctx.font = active ? 'bold 10px monospace' : '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(S.freqNames[i], nx, dialY + 22);
+
+        // tick mark
+        ctx.strokeStyle = active ? col : 'rgba(100,140,180,0.3)';
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.beginPath();
+        ctx.moveTo(nx, dialY);
+        ctx.lineTo(nx, dialY + (active ? 10 : 6));
+        ctx.stroke();
+
+        // active notch glow dot
+        if (active) {
+          ctx.beginPath();
+          ctx.arc(nx, dialY + 12, 4, 0, Math.PI * 2);
+          ctx.fillStyle = col;
+          ctx.shadowBlur = 12; ctx.shadowColor = col;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      }
+
+      // keyboard hint
+      ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(100,140,180,0.5)';
+      ctx.textAlign = 'center';
+      ctx.fillText('← → to tune', S.cx, dialY + 36);
+
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function drawGlitch() {
+      const intensity = S.transition / 20;
+      ctx.save();
+
+      // horizontal scanline tears
+      for (let i = 0; i < 6 * intensity; i++) {
+        const y = Math.random() * S.H;
+        const h = Math.random() * 8 + 2;
+        const offset = (Math.random() - 0.5) * 40 * intensity;
+        ctx.drawImage(canvas, 0, y, S.W, h, offset, y, S.W, h);
+      }
+
+      // color channel split overlay
+      ctx.globalAlpha = 0.12 * intensity;
+      ctx.fillStyle = '#ff0044';
+      ctx.fillRect(-4, 0, S.W, S.H);
+      ctx.fillStyle = '#0044ff';
+      ctx.fillRect(4, 0, S.W, S.H);
+
+      // static noise dots
+      ctx.globalAlpha = 0.15 * intensity;
+      for (let i = 0; i < 200 * intensity; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#ffffff' : S.freqColors[S.freq];
+        ctx.fillRect(Math.random() * S.W, Math.random() * S.H, 2, 2);
+      }
+
+      // frequency text flash
+      ctx.globalAlpha = intensity;
+      ctx.font = `bold ${28 + Math.random()*10}px monospace`;
+      ctx.fillStyle = S.freqColors[S.freq];
+      ctx.textAlign = 'center';
+      ctx.fillText(S.freqNames[S.freq], S.cx + (Math.random()-0.5)*10, S.cy - 80);
+
+      ctx.restore();
+    }
 
     // ── Keyboard ───────────────────────────────────────────────
     window.addEventListener('keydown', e => {
       if (e.key === 'ArrowRight') switchFreq((S.freq + 1) % 5);
       if (e.key === 'ArrowLeft')  switchFreq((S.freq + 4) % 5);
+    });
+
+    canvas.addEventListener('click', e => {
+      const dialY = S.H - 60;
+      const dialW = 320;
+      const dialX = S.cx - dialW / 2;
+      const notchW = dialW / 5;
+      if (e.clientY > dialY - 20 && e.clientY < dialY + 45) {
+        const clicked = Math.floor((e.clientX - dialX) / notchW);
+        if (clicked >= 0 && clicked < 5 && clicked !== S.freq) switchFreq(clicked);
+      }
     });
 
     function switchFreq(next) {
