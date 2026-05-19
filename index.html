@@ -4,59 +4,126 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIGSPACE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; }
+    body { background: #0A0A0F; overflow: hidden; }
     canvas { display: block; }
+    #scanlines {
+      position: fixed; inset: 0; pointer-events: none; z-index: 10;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px
+      );
+    }
+    #vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 9;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%);
+    }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
   <script>
     const canvas = document.getElementById('c');
-    const ctx = canvas.getContext('2d');
+    const ctx    = canvas.getContext('2d');
 
-    // ── State ──────────────────────────────────────────────────
-    const S = {
-      W: 0, H: 0, cx: 0, cy: 0,   // canvas dimensions + center
-      freq: 0,                       // current frequency (0–4)
-      freqNames: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT'],
-      freqColors: ['#00aaff','#00ffaa','#ffaa00','#aa66ff','#ff3333'],
-      nodes: [],                     // orbital nodes for current realm
-      particles: [],                 // connection trail particles
-      meteors: [],                   // STREAM realm DNS meteors
-      transition: 0,                 // 0=stable, >0=glitch anim frames remaining
-      t: 0,                          // frame counter
-      data: {}                       // fetched real data per realm
+    // ── Design Tokens ──────────────────────────────────────
+    const DC = {
+      bg:    '#0A0A0F',
+      muted: '#3A4A5A',
+      fg:    '#D0E0F0',
+      freq:  ['#00D4FF','#00FF88','#FFAA00','#CC44FF','#FF3366'],
+      names: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT'],
     };
 
-    const DNS_DOMAINS = [
-      'google.com','youtube.com','github.com','apple.com','microsoft.com',
-      'cloudflare.com','netflix.com','twitter.com','reddit.com','amazon.com',
-      'discord.com','slack.com','zoom.us','dropbox.com','spotify.com',
-      'instagram.com','facebook.com','linkedin.com','twitch.tv','tiktok.com',
-      'icloud.com','akamai.com','fastly.com','cdn.jsdelivr.net'
-    ];
-    let _dnsIdx = 0;
-    let _dnsTimer = null;
+    // ── State ──────────────────────────────────────────────
+    const S = {
+      W:0, H:0, cx:0, cy:0, freq:0,
+      nodes:[], particles:[], meteors:[], stars:[], rings:[],
+      transition:0, t:0, data:{},
+    };
 
-    // ── Resize ─────────────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────
+    function rgb(hex) {
+      return hex.slice(1).match(/../g).map(x => parseInt(x,16));
+    }
+    function rgba(hex, a) {
+      const [r,g,b] = rgb(hex);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    function freqCol(f=S.freq, a=1) {
+      return a===1 ? DC.freq[f] : rgba(DC.freq[f], a);
+    }
+
+    // ── Resize ─────────────────────────────────────────────
     function resize() {
-      canvas.width = window.innerWidth;
+      canvas.width  = window.innerWidth;
       canvas.height = window.innerHeight;
-      S.W = canvas.width;
-      S.H = canvas.height;
-      S.cx = S.W / 2;
-      S.cy = S.H / 2;
+      S.W = canvas.width; S.H = canvas.height;
+      S.cx = S.W/2; S.cy = S.H/2;
     }
     window.addEventListener('resize', resize);
     resize();
 
-    // ── Game Loop ──────────────────────────────────────────────
+    // ── Stars ──────────────────────────────────────────────
+    function initStars() {
+      S.stars = Array.from({length:140}, () => ({
+        x: Math.random(), y: Math.random(),
+        r: Math.random()*1.4+0.2,
+        a: Math.random()*0.55+0.08,
+        phase: Math.random()*Math.PI*2,
+        speed: Math.random()*0.004+0.001,
+      }));
+    }
+    initStars();
+
+    // ── Glow helper ────────────────────────────────────────
+    function glowCircle(x, y, r, hex, maxA=0.85) {
+      const [rv,gv,bv] = rgb(hex);
+      [[r*7,0.04],[r*3.5,0.12],[r*1.8,0.35],[r,maxA]].forEach(([rad,a]) => {
+        const g2 = ctx.createRadialGradient(x,y,0,x,y,rad);
+        g2.addColorStop(0, `rgba(${rv},${gv},${bv},${a})`);
+        g2.addColorStop(1, `rgba(${rv},${gv},${bv},0)`);
+        ctx.fillStyle = g2;
+        ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill();
+      });
+    }
+
+    // ── HUD corner brackets ────────────────────────────────
+    function hudCorners(x, y, w, h, hex, sz=14) {
+      ctx.save();
+      ctx.strokeStyle = rgba(hex, 0.55);
+      ctx.lineWidth = 1.5;
+      [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([cx,cy,dx,dy]) => {
+        ctx.beginPath();
+        ctx.moveTo(cx+dx*sz, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy+dy*sz);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    // ── Label pill background ──────────────────────────────
+    function labelPill(x, y, text, font) {
+      ctx.font = font || '9px "JetBrains Mono"';
+      const mw = ctx.measureText(text).width + 8;
+      ctx.fillStyle = 'rgba(6,8,14,0.8)';
+      ctx.beginPath();
+      ctx.rect(x - mw/2, y - 12, mw, 13);
+      ctx.fill();
+    }
+
+    // ── Game Loop ──────────────────────────────────────────
     function loop() {
-      ctx.fillStyle = '#04080f';
-      ctx.fillRect(0, 0, S.W, S.H);
+      ctx.fillStyle = DC.bg;
+      ctx.fillRect(0,0,S.W,S.H);
+      drawStars();
       drawGrid();
+      drawRings();
       drawNodes();
       if (S.freq === 2) drawMeteors();
       drawCharacter();
@@ -66,604 +133,538 @@
       requestAnimationFrame(loop);
     }
 
-    // ── Grid ───────────────────────────────────────────────────
+    // ── Stars ──────────────────────────────────────────────
+    function drawStars() {
+      S.stars.forEach(s => {
+        const tw = 0.45 + 0.55 * Math.sin(S.t * s.speed + s.phase);
+        ctx.save();
+        ctx.globalAlpha = s.a * tw;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(s.x * S.W, s.y * S.H, s.r, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    // ── Grid ───────────────────────────────────────────────
     function drawGrid() {
       ctx.save();
-      ctx.strokeStyle = 'rgba(0,170,255,0.05)';
+      ctx.strokeStyle = rgba(DC.freq[S.freq], 0.045);
       ctx.lineWidth = 1;
-      const step = 60;
-      for (let x = S.cx % step; x < S.W; x += step) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S.H); ctx.stroke();
+      const step = 80;
+      for (let x = S.cx%step; x < S.W; x += step) {
+        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,S.H); ctx.stroke();
       }
-      for (let y = S.cy % step; y < S.H; y += step) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S.W, y); ctx.stroke();
+      for (let y = S.cy%step; y < S.H; y += step) {
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(S.W,y); ctx.stroke();
       }
       ctx.restore();
     }
 
-    // ── Placeholder draw functions (filled in later tasks) ─────
-    // ── Orbital Node System ────────────────────────────────────
-    function spawnNodes(dataArray) {
-      // dataArray: [{ label, sublabel, color, size, speed }]
-      S.nodes = dataArray.map((d, i) => ({
+    // ── Expanding energy rings ─────────────────────────────
+    function drawRings() {
+      if (S.t % 80 === 0)
+        S.rings.push({ r:18, maxR:260, color: DC.freq[S.freq] });
+      S.rings = S.rings.filter(r => r.r < r.maxR);
+      S.rings.forEach(ring => {
+        ring.r += 2;
+        const a = 0.55 * (1 - ring.r/ring.maxR);
+        ctx.save();
+        ctx.strokeStyle = rgba(ring.color, a);
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(S.cx, S.cy, ring.r, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // ── Orbital Node System ────────────────────────────────
+    function spawnNodes(arr) {
+      S.nodes = arr.map((d, i) => ({
         label:    d.label    || '???',
         sublabel: d.sublabel || '',
-        color:    d.color    || S.freqColors[S.freq],
+        color:    d.color    || DC.freq[S.freq],
         size:     d.size     || 6,
-        distance: 120 + (i % 4) * 55 + Math.random() * 30,
-        angle:    (i / dataArray.length) * Math.PI * 2 + Math.random() * 0.5,
-        speed:    (d.speed || 0.004) * (Math.random() > 0.5 ? 1 : -1),
-        pulseOff: Math.random() * Math.PI * 2
+        distance: d._distance || (130 + (i%4)*60 + Math.random()*20),
+        angle:    (i / Math.max(arr.length,1)) * Math.PI*2 + Math.random()*0.3,
+        speed:    (d.speed || 0.004) * (Math.random()>0.5?1:-1),
+        phase:    Math.random()*Math.PI*2,
       }));
     }
 
     function drawNodes() {
-      const col = S.freqColors[S.freq];
-
       S.nodes.forEach(node => {
         node.angle += node.speed;
         const nx = S.cx + node.distance * Math.cos(node.angle);
         const ny = S.cy + node.distance * Math.sin(node.angle);
-        const pulse = 0.7 + 0.3 * Math.sin(S.t * 0.04 + node.pulseOff);
+        const pulse = 0.78 + 0.22 * Math.sin(S.t*0.04 + node.phase);
 
-        // orbit ring (faint)
         ctx.save();
-        ctx.strokeStyle = `rgba(${hexToRgb(col)},0.06)`;
+
+        // Orbit ring
+        ctx.strokeStyle = rgba(node.color, 0.07);
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 8]);
-        ctx.beginPath();
-        ctx.arc(S.cx, S.cy, node.distance, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.setLineDash([3,14]);
+        ctx.beginPath(); ctx.arc(S.cx, S.cy, node.distance, 0, Math.PI*2); ctx.stroke();
         ctx.setLineDash([]);
 
-        // connection line from character to node
-        ctx.strokeStyle = `rgba(${hexToRgb(node.color)},0.15)`;
+        // Animated connection line
+        ctx.strokeStyle = rgba(node.color, 0.14);
         ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(S.cx, S.cy);
-        ctx.lineTo(nx, ny);
-        ctx.stroke();
+        ctx.setLineDash([5,9]);
+        ctx.lineDashOffset = -(S.t * 0.6);
+        ctx.beginPath(); ctx.moveTo(S.cx, S.cy); ctx.lineTo(nx, ny); ctx.stroke();
+        ctx.setLineDash([]); ctx.lineDashOffset = 0;
 
-        // node glow
-        ctx.shadowBlur = 14 * pulse;
-        ctx.shadowColor = node.color;
+        // Multi-layer glow
+        glowCircle(nx, ny, node.size * pulse, node.color, 0.9);
 
-        // node circle
-        ctx.beginPath();
-        ctx.arc(nx, ny, node.size * pulse, 0, Math.PI * 2);
-        ctx.fillStyle = node.color;
-        ctx.globalAlpha = 0.85;
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        // White core
+        ctx.beginPath(); ctx.arc(nx, ny, node.size*0.45*pulse, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fill();
 
-        // label
-        ctx.shadowBlur = 0;
-        ctx.font = '10px monospace';
-        ctx.fillStyle = '#aaccee';
-        ctx.textAlign = 'center';
-        ctx.fillText(node.label, nx, ny - node.size - 6);
+        // Labels
+        const ly = ny - node.size*pulse - 7;
         if (node.sublabel) {
-          ctx.fillStyle = '#556677';
-          ctx.fillText(node.sublabel, nx, ny - node.size - 17);
+          labelPill(nx, ly-11, node.sublabel);
+          ctx.font = '8px "JetBrains Mono"';
+          ctx.fillStyle = DC.muted; ctx.textAlign='center';
+          ctx.fillText(node.sublabel, nx, ly-2);
         }
+        labelPill(nx, ly, node.label);
+        ctx.font = '10px "JetBrains Mono"';
+        ctx.fillStyle = node.color; ctx.textAlign='center';
+        ctx.fillText(node.label, nx, ly+9);
 
         ctx.restore();
 
-        // spawn trail particle occasionally
-        if (Math.random() < 0.08) {
-          S.particles.push({ x: nx, y: ny, vx: (Math.random()-0.5)*0.8,
-            vy: (Math.random()-0.5)*0.8, life: 30, color: node.color });
+        // Spark particles
+        if (Math.random() < 0.06) {
+          S.particles.push({
+            x:nx, y:ny, vx:(Math.random()-0.5)*1.4, vy:(Math.random()-0.5)*1.4,
+            life:45, max:45, color:node.color, r:Math.random()*2+0.5,
+          });
         }
       });
 
-      // draw + age particles
+      // Particles
       S.particles = S.particles.filter(p => p.life > 0);
       S.particles.forEach(p => {
         ctx.save();
-        ctx.globalAlpha = p.life / 30 * 0.6;
+        ctx.globalAlpha = (p.life/p.max) * 0.7;
         ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r*(p.life/p.max), 0, Math.PI*2); ctx.fill();
         ctx.restore();
-        p.x += p.vx; p.y += p.vy; p.life--;
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= 0.96; p.vy *= 0.96; p.life--;
       });
     }
 
-    // ── Helpers ────────────────────────────────────────────────
-    function hexToRgb(hex) {
-      const r = parseInt(hex.slice(1,3),16);
-      const g = parseInt(hex.slice(3,5),16);
-      const b = parseInt(hex.slice(5,7),16);
-      return `${r},${g},${b}`;
-    }
+    // ── Pixel Character ────────────────────────────────────
     function drawCharacter() {
-      const x = S.cx, y = S.cy;
-      const col = S.freqColors[S.freq];
-      const pulse = 0.7 + 0.3 * Math.sin(S.t * 0.05);
+      const x=S.cx, y=S.cy;
+      const clr = DC.freq[S.freq];
+      const pulse = 0.7 + 0.3*Math.sin(S.t*0.05);
 
-      // glow aura
       ctx.save();
-      ctx.shadowBlur = 30 * pulse;
-      ctx.shadowColor = col;
 
-      // desk / terminal (isometric slab — 3 parallelograms)
-      const dw = 44, dh = 14;
-      ctx.fillStyle = '#0a1a2e';
+      // HUD brackets
+      hudCorners(x-52, y-58, 104, 84, clr, 15);
+
+      // Scan beam
+      const scanY = y - 32 + ((S.t * 0.9) % 64);
+      const sg = ctx.createLinearGradient(x-52, scanY, x+52, scanY);
+      sg.addColorStop(0, 'transparent');
+      sg.addColorStop(0.5, rgba(clr, 0.14*pulse));
+      sg.addColorStop(1, 'transparent');
+      ctx.fillStyle = sg;
+      ctx.fillRect(x-52, scanY, 104, 2);
+
+      // Desk slab
+      ctx.fillStyle = '#0D1520';
       ctx.beginPath();
-      ctx.moveTo(x - dw, y + 14);
-      ctx.lineTo(x,      y + 14 - dh/2);
-      ctx.lineTo(x + dw, y + 14);
-      ctx.lineTo(x,      y + 14 + dh/2);
+      ctx.moveTo(x-44,y+14); ctx.lineTo(x,y+7); ctx.lineTo(x+44,y+14); ctx.lineTo(x,y+21);
       ctx.closePath(); ctx.fill();
-
-      // desk top edge highlight
-      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = rgba(clr, 0.4); ctx.lineWidth=1;
       ctx.beginPath();
-      ctx.moveTo(x - dw, y + 14);
-      ctx.lineTo(x,      y + 14 - dh/2);
-      ctx.lineTo(x + dw, y + 14);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+      ctx.moveTo(x-44,y+14); ctx.lineTo(x,y+7); ctx.lineTo(x+44,y+14); ctx.stroke();
 
-      // monitor screen (glowing rect)
-      ctx.fillStyle = col;
-      ctx.globalAlpha = 0.15 * pulse;
-      ctx.fillRect(x - 14, y - 10, 28, 18);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-      ctx.strokeRect(x - 14, y - 10, 28, 18);
+      // Monitor glow fill
+      ctx.fillStyle = rgba(clr, 0.12*pulse);
+      ctx.fillRect(x-14,y-11,28,19);
+      ctx.strokeStyle = clr; ctx.lineWidth=1.5;
+      ctx.strokeRect(x-14,y-11,28,19);
 
-      // monitor scanlines
-      ctx.strokeStyle = col; ctx.lineWidth = 0.5; ctx.globalAlpha = 0.3;
-      for (let i = y - 8; i < y + 8; i += 3) {
-        ctx.beginPath(); ctx.moveTo(x - 13, i); ctx.lineTo(x + 13, i); ctx.stroke();
+      // Scanlines on monitor
+      ctx.lineWidth=0.5;
+      for (let i=y-9; i<y+8; i+=3) {
+        ctx.strokeStyle = rgba(clr, 0.18);
+        ctx.beginPath(); ctx.moveTo(x-13,i); ctx.lineTo(x+13,i); ctx.stroke();
       }
-      ctx.globalAlpha = 1;
 
-      // character body
-      ctx.fillStyle = '#c8d8f0';
-      ctx.fillRect(x - 5, y - 22, 10, 12);  // torso
+      // Cursor blink
+      if (Math.floor(S.t/28)%2===0) {
+        ctx.fillStyle = clr;
+        ctx.fillRect(x-9, y+2, 6, 2);
+      }
 
-      // head
-      ctx.beginPath();
-      ctx.arc(x, y - 27, 6, 0, Math.PI * 2);
-      ctx.fillStyle = '#e8e8e8';
-      ctx.fill();
+      // Body
+      ctx.fillStyle = '#B0C4DC'; ctx.fillRect(x-5, y-23, 10, 12);
+      ctx.beginPath(); ctx.arc(x, y-28, 6, 0, Math.PI*2);
+      ctx.fillStyle = '#D0E0F0'; ctx.fill();
+      ctx.fillStyle = '#B0C4DC';
+      ctx.fillRect(x-11, y-21, 4, 9);
+      ctx.fillRect(x+7,  y-21, 4, 9);
 
-      // arms
-      ctx.fillStyle = '#c8d8f0';
-      ctx.fillRect(x - 10, y - 20, 4, 8);   // left arm (toward desk)
-      ctx.fillRect(x + 6,  y - 20, 4, 8);   // right arm
-
-      // eyes (tiny glowing dots)
-      ctx.fillStyle = col;
-      ctx.shadowBlur = 6; ctx.shadowColor = col;
-      ctx.fillRect(x - 3, y - 29, 2, 2);
-      ctx.fillRect(x + 1, y - 29, 2, 2);
+      // Glowing eyes
+      glowCircle(x-2, y-29, 1.5, clr, 1);
+      glowCircle(x+2, y-29, 1.5, clr, 1);
 
       ctx.restore();
     }
+
+    // ── Frequency Dial (HUD Style) ─────────────────────────
     function drawDial() {
-      const col = S.freqColors[S.freq];
-      const dialY = S.H - 60;
-      const dialW = 320;
-      const dialX = S.cx - dialW / 2;
-      const notchW = dialW / 5;
+      const clr = DC.freq[S.freq];
+      const dW=370, dH=72, dX=S.cx-dW/2, dY=S.H-dH-14;
 
       ctx.save();
 
-      // dial background
-      ctx.fillStyle = 'rgba(4,8,15,0.85)';
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1;
-      ctx.shadowBlur = 10; ctx.shadowColor = col;
-      roundRect(ctx, dialX - 10, dialY - 18, dialW + 20, 52, 6);
-      ctx.fill(); ctx.stroke();
-      ctx.shadowBlur = 0;
+      // Panel
+      ctx.fillStyle = 'rgba(8,10,16,0.9)';
+      ctx.fillRect(dX, dY, dW, dH);
+      ctx.strokeStyle = rgba(clr, 0.38); ctx.lineWidth=1;
+      ctx.strokeRect(dX, dY, dW, dH);
+      hudCorners(dX, dY, dW, dH, clr, 12);
 
-      // frequency label (big, above dial)
-      ctx.font = 'bold 13px monospace';
-      ctx.fillStyle = col;
-      ctx.textAlign = 'center';
-      ctx.shadowBlur = 8; ctx.shadowColor = col;
-      ctx.fillText(`FREQ: ${S.freqNames[S.freq]}`, S.cx, dialY - 28);
-      ctx.shadowBlur = 0;
+      // Freq name
+      ctx.font = 'bold 13px "Orbitron"';
+      ctx.fillStyle = clr; ctx.textAlign='center';
+      ctx.shadowBlur=16; ctx.shadowColor=clr;
+      ctx.fillText(`FREQ: ${DC.names[S.freq]}`, S.cx, dY+20);
+      ctx.shadowBlur=0;
 
-      // notch marks
-      for (let i = 0; i < 5; i++) {
-        const nx = dialX + notchW * i + notchW / 2;
-        const active = i === S.freq;
-        ctx.fillStyle = active ? col : 'rgba(100,140,180,0.4)';
-        ctx.font = active ? 'bold 10px monospace' : '9px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(S.freqNames[i], nx, dialY + 22);
+      // Notches
+      const nW = dW/5;
+      for (let i=0; i<5; i++) {
+        const nx = dX + nW*i + nW/2;
+        const active = i===S.freq;
+        const nc = DC.freq[i];
 
-        // tick mark
-        ctx.strokeStyle = active ? col : 'rgba(100,140,180,0.3)';
+        // Active notch glow strip
+        if (active) {
+          const bg = ctx.createLinearGradient(nx-26,dY+26,nx+26,dY+26);
+          bg.addColorStop(0,'transparent');
+          bg.addColorStop(0.5, rgba(nc,0.3));
+          bg.addColorStop(1,'transparent');
+          ctx.fillStyle=bg;
+          ctx.fillRect(nx-26, dY+26, 52, 22);
+        }
+
+        // Tick mark
+        ctx.strokeStyle = active ? nc : rgba(nc, 0.28);
         ctx.lineWidth = active ? 2 : 1;
         ctx.beginPath();
-        ctx.moveTo(nx, dialY);
-        ctx.lineTo(nx, dialY + (active ? 10 : 6));
+        ctx.moveTo(nx, dY+26);
+        ctx.lineTo(nx, dY+(active?42:36));
         ctx.stroke();
 
-        // active notch glow dot
-        if (active) {
-          ctx.beginPath();
-          ctx.arc(nx, dialY + 12, 4, 0, Math.PI * 2);
-          ctx.fillStyle = col;
-          ctx.shadowBlur = 12; ctx.shadowColor = col;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
+        // Active glow dot
+        if (active) glowCircle(nx, dY+47, 4, nc, 1);
+
+        // Label
+        ctx.font = active ? 'bold 8px "Orbitron"' : '7px "JetBrains Mono"';
+        ctx.fillStyle = active ? nc : rgba(nc, 0.38);
+        ctx.textAlign='center';
+        ctx.fillText(DC.names[i], nx, dY+63);
       }
 
-      // keyboard hint
-      ctx.font = '9px monospace';
-      ctx.fillStyle = 'rgba(100,140,180,0.5)';
-      ctx.textAlign = 'center';
-      ctx.fillText('← → to tune', S.cx, dialY + 36);
+      // Key hint
+      ctx.font = '7px "JetBrains Mono"';
+      ctx.fillStyle = rgba(clr, 0.4);
+      ctx.textAlign='right';
+      ctx.fillText('← → TUNE', dX+dW-8, dY+9);
 
       ctx.restore();
     }
 
-    function roundRect(ctx, x, y, w, h, r) {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-    }
-
+    // ── Glitch ─────────────────────────────────────────────
     function drawGlitch() {
-      const intensity = S.transition / 20;
+      const k = S.transition/20;
       ctx.save();
 
-      // horizontal scanline tears
-      for (let i = 0; i < 6 * intensity; i++) {
-        const y = Math.random() * S.H;
-        const h = Math.random() * 8 + 2;
-        const offset = (Math.random() - 0.5) * 40 * intensity;
-        ctx.drawImage(canvas, 0, y, S.W, h, offset, y, S.W, h);
+      // Horizontal strip tears
+      for (let i=0; i<Math.ceil(8*k); i++) {
+        const ty = Math.random()*S.H;
+        const th = Math.random()*7+1;
+        const tx = (Math.random()-0.5)*35*k;
+        ctx.drawImage(canvas, 0,ty,S.W,th, tx,ty,S.W,th);
       }
 
-      // color channel split overlay
-      ctx.globalAlpha = 0.12 * intensity;
-      ctx.fillStyle = '#ff0044';
-      ctx.fillRect(-4, 0, S.W, S.H);
-      ctx.fillStyle = '#0044ff';
-      ctx.fillRect(4, 0, S.W, S.H);
+      // Color channel offset
+      ctx.globalAlpha = 0.1*k;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.drawImage(canvas, -4*k, 0); // red shift left
+      ctx.drawImage(canvas, 4*k, 0);  // blue shift right
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
 
-      // static noise dots
-      ctx.globalAlpha = 0.15 * intensity;
-      for (let i = 0; i < 200 * intensity; i++) {
-        ctx.fillStyle = Math.random() > 0.5 ? '#ffffff' : S.freqColors[S.freq];
-        ctx.fillRect(Math.random() * S.W, Math.random() * S.H, 2, 2);
+      // Static noise
+      ctx.globalAlpha = 0.1*k;
+      for (let i=0; i<160; i++) {
+        ctx.fillStyle = Math.random()>0.55 ? '#ffffff' : DC.freq[S.freq];
+        ctx.fillRect(Math.random()*S.W, Math.random()*S.H, 2, 1);
       }
+      ctx.globalAlpha=1;
 
-      // frequency text flash
-      ctx.globalAlpha = intensity;
-      ctx.font = `bold ${28 + Math.random()*10}px monospace`;
-      ctx.fillStyle = S.freqColors[S.freq];
-      ctx.textAlign = 'center';
-      ctx.fillText(S.freqNames[S.freq], S.cx + (Math.random()-0.5)*10, S.cy - 80);
+      // Flash freq name
+      ctx.font = `bold ${29+Math.random()*10}px "Orbitron"`;
+      ctx.fillStyle = DC.freq[S.freq];
+      ctx.globalAlpha = k*0.85;
+      ctx.textAlign='center';
+      ctx.shadowBlur=28; ctx.shadowColor=DC.freq[S.freq];
+      ctx.fillText(DC.names[S.freq], S.cx+(Math.random()-0.5)*10, S.cy-94);
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
 
       ctx.restore();
     }
 
-    // ── Keyboard ───────────────────────────────────────────────
+    // ── STREAM: DNS meteors ────────────────────────────────
+    const DNS_DOMAINS = [
+      'google.com','youtube.com','github.com','apple.com','microsoft.com',
+      'cloudflare.com','netflix.com','twitter.com','reddit.com','amazon.com',
+      'discord.com','slack.com','zoom.us','dropbox.com','spotify.com',
+      'instagram.com','facebook.com','linkedin.com','twitch.tv','tiktok.com',
+      'icloud.com','akamai.com','fastly.com','cdn.jsdelivr.net'
+    ];
+    let _dnsIdx=0, _dnsTimer=null;
+
+    function spawnMeteor(domain, ip, ttl) {
+      const side = Math.floor(Math.random()*4);
+      let sx, sy;
+      if (side===0){sx=Math.random()*S.W; sy=-20;}
+      else if(side===1){sx=S.W+20; sy=Math.random()*S.H;}
+      else if(side===2){sx=Math.random()*S.W; sy=S.H+20;}
+      else{sx=-20; sy=Math.random()*S.H;}
+      const ex=S.cx+(Math.random()-0.5)*200, ey=S.cy+(Math.random()-0.5)*100;
+      const isDNS=['google','cloudflare','apple','microsoft'].some(k=>domain.includes(k));
+      const isCDN=['akamai','fastly','cdn','amazon'].some(k=>(domain+ip).includes(k));
+      const color = isDNS?'#00D4FF': isCDN?'#FFAA00':'#00FF88';
+      S.meteors.push({x:sx,y:sy,tx:ex,ty:ey,domain,ip,color,life:135,max:135,size:2.2+Math.random()*1.8});
+    }
+
+    function drawMeteors() {
+      S.meteors = S.meteors.filter(m => m.life>0);
+      S.meteors.forEach(m => {
+        const prog = 1 - m.life/m.max;
+        const x = m.x+(m.tx-m.x)*prog;
+        const y = m.y+(m.ty-m.y)*prog;
+        const alpha = Math.min(1, m.life/28);
+
+        ctx.save(); ctx.globalAlpha=alpha;
+
+        // Outer glow
+        glowCircle(x, y, m.size, m.color, 0.7);
+
+        // Core
+        ctx.fillStyle='#ffffff';
+        ctx.beginPath(); ctx.arc(x,y,m.size*0.55,0,Math.PI*2); ctx.fill();
+
+        // Tail gradient
+        const tailX=m.x+(m.tx-m.x)*Math.max(0,prog-0.14);
+        const tailY=m.y+(m.ty-m.y)*Math.max(0,prog-0.14);
+        const tg = ctx.createLinearGradient(tailX,tailY,x,y);
+        tg.addColorStop(0,'transparent');
+        tg.addColorStop(1, rgba(m.color, 0.55));
+        ctx.strokeStyle=tg; ctx.lineWidth=1.8;
+        ctx.globalAlpha=alpha*0.7;
+        ctx.beginPath(); ctx.moveTo(tailX,tailY); ctx.lineTo(x,y); ctx.stroke();
+
+        // Label
+        if (prog > 0.52) {
+          ctx.globalAlpha = alpha*(prog-0.52)/0.48;
+          ctx.font='9px "JetBrains Mono"'; ctx.textAlign='left';
+          ctx.fillStyle=m.color;
+          ctx.shadowBlur=6; ctx.shadowColor=m.color;
+          ctx.fillText(m.domain, x+8, y-2);
+          ctx.fillStyle=DC.muted; ctx.shadowBlur=0;
+          ctx.fillText(m.ip, x+8, y+10);
+        }
+        ctx.restore(); m.life--;
+      });
+    }
+
+    // ── Input ──────────────────────────────────────────────
     window.addEventListener('keydown', e => {
-      if (e.key === 'ArrowRight') switchFreq((S.freq + 1) % 5);
-      if (e.key === 'ArrowLeft')  switchFreq((S.freq + 4) % 5);
+      if (e.key==='ArrowRight') switchFreq((S.freq+1)%5);
+      if (e.key==='ArrowLeft')  switchFreq((S.freq+4)%5);
     });
 
     canvas.addEventListener('click', e => {
-      const dialY = S.H - 60;
-      const dialW = 320;
-      const dialX = S.cx - dialW / 2;
-      const notchW = dialW / 5;
-      if (e.clientY > dialY - 20 && e.clientY < dialY + 45) {
-        const clicked = Math.floor((e.clientX - dialX) / notchW);
-        if (clicked >= 0 && clicked < 5 && clicked !== S.freq) switchFreq(clicked);
+      const dW=370, dH=72, dX=S.cx-dW/2, dY=S.H-dH-14;
+      if (e.clientY>dY && e.clientY<dY+dH) {
+        const clicked = Math.floor((e.clientX-dX)/(dW/5));
+        if (clicked>=0 && clicked<5 && clicked!==S.freq) switchFreq(clicked);
       }
     });
 
     function switchFreq(next) {
-      S.freq = next;
-      S.transition = 20;
-      S.nodes = [];
+      S.freq=next; S.transition=20;
+      S.nodes=[]; S.particles=[]; S.rings=[];
+      if (_dnsTimer) { clearInterval(_dnsTimer); _dnsTimer=null; }
       loadRealm(next);
     }
 
+    // ── Realm Router ───────────────────────────────────────
     async function loadRealm(f) {
-      S.nodes = [];
-      S.particles = [];
-      S.meteors = [];
-
-      if (f === 0) await loadCarrier();
-      else if (f === 1) await loadTopology();
-      else if (f === 2) await loadStream();
-      else if (f === 3) await loadBluetooth();
-      else if (f === 4) await loadThreat();
+      S.nodes=[]; S.particles=[]; S.meteors=[];
+      if (f===0) await loadCarrier();
+      else if (f===1) await loadTopology();
+      else if (f===2) await loadStream();
+      else if (f===3) await loadBluetooth();
+      else if (f===4) await loadThreat();
     }
 
+    function countryFlag(code) {
+      if (!code||code.length!==2) return '🌐';
+      return String.fromCodePoint(...[...code.toUpperCase()].map(c=>0x1F1E0+c.charCodeAt(0)-65));
+    }
+
+    // ── CARRIER ────────────────────────────────────────────
     async function loadCarrier() {
       let geo = S.data.carrier;
       if (!geo) {
         try {
           const r = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,regionName,city,isp,as,query,lat,lon,timezone');
-          geo = await r.json();
-          S.data.carrier = geo;
-        } catch(e) {
-          geo = { query:'?.?.?.?', city:'Unknown', country:'Unknown', isp:'Unknown', as:'AS???' };
-        }
+          geo = await r.json(); S.data.carrier = geo;
+        } catch(e) { geo={query:'?.?.?.?',city:'Unknown',country:'Unknown',isp:'Unknown',as:'AS???'}; }
       }
-
-      const flag = countryFlag(geo.countryCode || 'UN');
+      const flag = countryFlag(geo.countryCode||'UN');
+      const c = DC.freq[0];
       spawnNodes([
-        { label: geo.query,     sublabel: `${flag} ${geo.city}, ${geo.country}`, color: '#00aaff', size: 14, speed: 0.0015 },
-        { label: 'YOUR NODE',   sublabel: 'origin',     color: '#00ffaa', size: 10, speed: 0 },
-        { label: geo.isp || '?', sublabel: 'ISP',       color: '#00aaff', size: 8,  speed: 0.002 },
-        { label: (geo.as||'').split(' ')[0], sublabel: 'ASN',color:'#aa66ff',size:7,speed:0.003},
-        { label: geo.timezone||'',sublabel:'timezone',  color: '#445566', size: 5,  speed: -0.001 },
-        { label: `${geo.lat?.toFixed(2)},${geo.lon?.toFixed(2)}`, sublabel:'geo coords',color:'#334455',size:5,speed:0.002}
+        {label:geo.query, sublabel:`${flag} ${geo.city}, ${geo.country}`, color:c, size:14, speed:0.0015},
+        {label:'YOUR NODE', sublabel:'origin', color:'#00FF88', size:10, speed:0, _distance:0},
+        {label:geo.isp||'?', sublabel:'ISP', color:c, size:8, speed:0.002},
+        {label:(geo.as||'').split(' ')[0], sublabel:'ASN', color:'#CC44FF', size:7, speed:0.003},
+        {label:geo.timezone||'', sublabel:'TZ', color:DC.muted, size:5, speed:-0.001},
+        {label:`${geo.lat?.toFixed(1)},${geo.lon?.toFixed(1)}`, sublabel:'GEO', color:'#2A3A4A', size:5, speed:0.002},
       ]);
-
-      // fix YOUR NODE at center (distance=0 makes it sit on character)
-      S.nodes[1].distance = 0;
-      S.nodes[1].speed = 0;
     }
 
-    function countryFlag(code) {
-      if (!code || code.length !== 2) return '🌐';
-      return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E0 + c.charCodeAt(0) - 65));
-    }
-
+    // ── TOPOLOGY ───────────────────────────────────────────
     async function loadTopology() {
       let connections = [];
-
-      // Try NetWatch local backend first
       try {
         const r = await Promise.race([
           fetch('http://localhost:5001/api/connections'),
-          new Promise((_,rej) => setTimeout(rej, 1500, new Error('timeout')))
+          new Promise((_,rej)=>setTimeout(rej,1500,'timeout'))
         ]);
-        if (r.ok) {
-          const d = await r.json();
-          connections = (d.connections || d || []).slice(0, 12);
-        }
-      } catch(e) { /* offline */ }
-
-      // Fallback: simulated connections with realistic IPs
+        if (r.ok) { const d=await r.json(); connections=(d.connections||d||[]).slice(0,12); }
+      } catch(e) {}
       if (!connections.length) {
         connections = [
-          { dst_ip:'8.8.8.8',   dst_host:'dns.google',     bytes:1240, proto:'UDP' },
-          { dst_ip:'1.1.1.1',   dst_host:'cloudflare.com', bytes:3200, proto:'TCP' },
-          { dst_ip:'17.57.144.1',dst_host:'apple.com',     bytes:8800, proto:'TCP' },
-          { dst_ip:'151.101.1.67',dst_host:'reddit.com',   bytes:4200, proto:'TCP' },
-          { dst_ip:'52.20.1.44', dst_host:'aws.com',       bytes:12000,proto:'TCP' },
-          { dst_ip:'104.21.14.1',dst_host:'cloudflare-cdn',bytes:6700, proto:'TCP' },
+          {dst_ip:'8.8.8.8',   dst_host:'dns.google',     bytes:1240, proto:'UDP'},
+          {dst_ip:'1.1.1.1',   dst_host:'cloudflare.com', bytes:3200, proto:'TCP'},
+          {dst_ip:'17.57.144.1',dst_host:'apple.com',     bytes:8800, proto:'TCP'},
+          {dst_ip:'151.101.1.67',dst_host:'reddit.com',   bytes:4200, proto:'TCP'},
+          {dst_ip:'52.20.1.44', dst_host:'aws.com',       bytes:12000,proto:'TCP'},
+          {dst_ip:'104.21.14.1',dst_host:'cf-cdn',        bytes:6700, proto:'TCP'},
         ];
       }
-
-      // Enrich with geo (ip-api batch, free, max 100 per call, no key)
-      const ips = connections.map(c => c.dst_ip || c.ip).filter(Boolean).slice(0, 10);
+      const ips = connections.map(c=>c.dst_ip||c.ip).filter(Boolean).slice(0,10);
       let geoMap = {};
       try {
-        const r = await fetch('https://ip-api.com/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(ips.map(q => ({ query: q, fields: 'status,country,countryCode,city,isp,query' })))
-        });
+        const r = await fetch('https://ip-api.com/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ips.map(q=>({query:q,fields:'status,country,countryCode,city,isp,query'})))});
         const geos = await r.json();
-        geos.forEach(g => { if (g.status === 'success') geoMap[g.query] = g; });
+        geos.forEach(g=>{if(g.status==='success')geoMap[g.query]=g;});
       } catch(e) {}
-
-      const nodes = connections.map((c, i) => {
-        const ip = c.dst_ip || c.ip || '?';
-        const geo = geoMap[ip] || {};
-        const flag = countryFlag(geo.countryCode);
-        const label = c.dst_host || ip;
-        const sublabel = geo.city ? `${flag} ${geo.city}` : (c.proto || '');
+      spawnNodes(connections.map((c,i)=>{
+        const ip=c.dst_ip||c.ip||'?';
+        const geo=geoMap[ip]||{};
+        const label=c.dst_host||ip;
         return {
-          label: label.length > 18 ? label.slice(0,18)+'…' : label,
-          sublabel,
-          color: '#00ffaa',
-          size: 5 + Math.min(12, Math.log2((c.bytes || 1000) / 100)),
-          speed: 0.002 + i * 0.0003
+          label: label.length>18?label.slice(0,18)+'…':label,
+          sublabel: geo.city ? `${countryFlag(geo.countryCode)} ${geo.city}` : (c.proto||''),
+          color: DC.freq[1],
+          size: 5+Math.min(12, Math.log2((c.bytes||1000)/100)),
+          speed: 0.002+i*0.0003,
         };
-      });
-
-      spawnNodes(nodes);
+      }));
     }
 
+    // ── STREAM ─────────────────────────────────────────────
     async function loadStream() {
       if (_dnsTimer) clearInterval(_dnsTimer);
-      S.meteors = [];
-      spawnNodes([]); // no orbital nodes — meteors are the show
+      S.meteors=[]; spawnNodes([]);
       pumpDNS();
       _dnsTimer = setInterval(pumpDNS, 2800);
     }
-
     async function pumpDNS() {
-      if (S.freq !== 2) { clearInterval(_dnsTimer); return; }
-      const domain = DNS_DOMAINS[_dnsIdx % DNS_DOMAINS.length];
-      _dnsIdx++;
+      if (S.freq!==2) { clearInterval(_dnsTimer); return; }
+      const domain = DNS_DOMAINS[_dnsIdx++ % DNS_DOMAINS.length];
       try {
-        const r = await fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`, {
-          headers: { 'Accept': 'application/dns-json' }
-        });
+        const r = await fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`,{headers:{'Accept':'application/dns-json'}});
         const d = await r.json();
-        const answers = d.Answer || [];
-        const ip = answers.find(a => a.type === 1)?.data || '?';
-        const ttl = answers[0]?.TTL || 0;
-        spawnMeteor(domain, ip, ttl);
-      } catch(e) {
-        spawnMeteor(domain, 'NXDOMAIN', 0);
-      }
+        const answers = d.Answer||[];
+        spawnMeteor(domain, answers.find(a=>a.type===1)?.data||'?', answers[0]?.TTL||0);
+      } catch(e) { spawnMeteor(domain,'NXDOMAIN',0); }
     }
 
-    function spawnMeteor(domain, ip, ttl) {
-      const side = Math.floor(Math.random() * 4);
-      let sx, sy, ex, ey;
-      if (side === 0) { sx = Math.random()*S.W; sy = -20; ex = S.cx+(Math.random()-0.5)*200; ey = S.cy+(Math.random()-0.5)*100; }
-      else if (side===1){ sx=S.W+20; sy=Math.random()*S.H; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
-      else if (side===2){ sx=Math.random()*S.W; sy=S.H+20; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
-      else { sx=-20; sy=Math.random()*S.H; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
-
-      const isDNS = ['google.com','cloudflare.com','apple.com','microsoft.com'].some(d => domain.includes(d));
-      const isCDN = ['akamai','fastly','cdn','cloudflare','amazon'].some(k => (domain+ip).includes(k));
-      const col = isDNS ? '#00aaff' : isCDN ? '#ffaa00' : '#00ffaa';
-
-      S.meteors.push({ x:sx, y:sy, tx:ex, ty:ey, domain, ip, ttl, color:col,
-        life:120, maxLife:120, size: 2 + Math.random()*2 });
-    }
-
-    function drawMeteors() {
-      S.meteors = S.meteors.filter(m => m.life > 0);
-      S.meteors.forEach(m => {
-        const prog = 1 - (m.life / m.maxLife);
-        const x = m.x + (m.tx - m.x) * prog;
-        const y = m.y + (m.ty - m.y) * prog;
-        const alpha = Math.min(1, m.life / 20);
-
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.shadowBlur = 8; ctx.shadowColor = m.color;
-
-        // meteor dot
-        ctx.beginPath();
-        ctx.arc(x, y, m.size, 0, Math.PI * 2);
-        ctx.fillStyle = m.color;
-        ctx.fill();
-
-        // tail
-        ctx.strokeStyle = m.color; ctx.lineWidth = 1.5; ctx.globalAlpha = alpha * 0.4;
-        ctx.beginPath();
-        const tailX = m.x + (m.tx - m.x) * Math.max(0, prog - 0.1);
-        const tailY = m.y + (m.ty - m.y) * Math.max(0, prog - 0.1);
-        ctx.moveTo(tailX, tailY); ctx.lineTo(x, y); ctx.stroke();
-
-        // domain label near target
-        if (prog > 0.6) {
-          ctx.globalAlpha = alpha * (prog - 0.6) / 0.4;
-          ctx.shadowBlur = 0;
-          ctx.font = '9px monospace';
-          ctx.fillStyle = m.color;
-          ctx.textAlign = 'left';
-          ctx.fillText(m.domain, x + 6, y - 2);
-          ctx.fillStyle = '#445566';
-          ctx.fillText(m.ip, x + 6, y + 9);
-        }
-        ctx.restore();
-        m.life--;
-      });
-    }
+    // ── BLUETOOTH ──────────────────────────────────────────
     async function loadBluetooth() {
-      let devices = [];
-
-      // Try bluth-scan local backend
+      let devices=[];
       try {
-        const r = await Promise.race([
-          fetch('http://localhost:5050/api/devices'),
-          new Promise((_,rej) => setTimeout(rej, 1500, new Error('timeout')))
-        ]);
-        if (r.ok) {
-          const d = await r.json();
-          devices = (d.devices || d || []).slice(0, 10);
-        }
-      } catch(e) { /* offline */ }
-
-      // Fallback: realistic simulated BLE environment
+        const r=await Promise.race([fetch('http://localhost:5050/api/devices'),new Promise((_,rej)=>setTimeout(rej,1500,'to'))]);
+        if(r.ok){const d=await r.json();devices=(d.devices||d||[]).slice(0,10);}
+      } catch(e) {}
       if (!devices.length) {
-        devices = [
-          { name: 'AirPods Pro',    rssi: -42, address: 'AA:BB:CC:01' },
-          { name: 'Apple Watch',    rssi: -48, address: 'AA:BB:CC:02' },
-          { name: 'Mi Band 7',      rssi: -61, address: 'AA:BB:CC:03' },
-          { name: 'Unknown Device', rssi: -74, address: 'DE:AD:BE:EF' },
-          { name: 'iPhone 15',      rssi: -55, address: 'AA:BB:CC:04' },
-          { name: 'BLE Beacon',     rssi: -82, address: 'BA:DC:0F:FE' },
+        devices=[
+          {name:'AirPods Pro',rssi:-42},{name:'Apple Watch',rssi:-48},
+          {name:'Mi Band 7',rssi:-61},{name:'Unknown Device',rssi:-74},
+          {name:'iPhone 15',rssi:-55},{name:'BLE Beacon',rssi:-82},
         ];
       }
-
-      const nodes = devices.map((d, i) => {
-        const rssi = d.rssi || -70;
-        // RSSI -30 (strong) → distance 80, RSSI -90 (weak) → distance 260
-        const distance = 80 + (Math.abs(rssi) - 30) * (180/60);
-        const strength = Math.max(0, Math.min(1, (rssi + 30) / -60));
-
-        return {
-          label: d.name || 'Unknown',
-          sublabel: `${rssi} dBm`,
-          color: '#aa66ff',
-          size: 4 + (1 - strength) * 8,
-          speed: 0.003 + i * 0.0002,
-          _distance: distance
-        };
+      const nodes = devices.map((d,i)=>{
+        const rssi=d.rssi||-70;
+        const dist=80+(Math.abs(rssi)-30)*(180/60);
+        const str=Math.max(0,Math.min(1,(rssi+30)/-60));
+        return {label:d.name||'Unknown',sublabel:`${rssi} dBm`,color:DC.freq[3],size:4+(1-str)*8,speed:0.003+i*0.0002,_distance:dist};
       });
-
       spawnNodes(nodes);
-      // Override distances with RSSI-derived values
-      nodes.forEach((n, i) => { if (S.nodes[i]) S.nodes[i].distance = n._distance; });
+      nodes.forEach((n,i)=>{if(S.nodes[i])S.nodes[i].distance=n._distance;});
     }
+
+    // ── THREAT ─────────────────────────────────────────────
     const WORKER_URL = 'https://sigspace.andres-491.workers.dev';
 
     async function loadThreat() {
-      // Seed with IPs from CARRIER data + known suspicious ranges
-      const seedIPs = [
-        ...(S.data.carrier ? [] : []),
-        '185.220.101.50',  // known TOR exit
-        '194.165.16.11',   // known scanner
-        '45.142.212.100',  // known bad
-        '91.108.56.196',   // telegram (legit)
-        '140.82.112.4',    // github (legit)
-        '8.8.8.8',         // google (legit)
-      ];
-
-      const nodes = [];
-      for (const ip of seedIPs.slice(0, 8)) {
-        let score = 0, isp = '', country = '';
-
-        // Try Worker proxy for AbuseIPDB
+      const seedIPs=['185.220.101.50','194.165.16.11','45.142.212.100','91.108.56.196','140.82.112.4','8.8.8.8'];
+      const nodes=[];
+      for (const ip of seedIPs.slice(0,8)) {
+        let score=0, country='';
         try {
-          const r = await Promise.race([
-            fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),
-            new Promise((_,rej) => setTimeout(rej, 2000, new Error('timeout')))
-          ]);
-          if (r.ok) {
-            const d = await r.json();
-            score = d.abuseConfidenceScore || 0;
-            isp = d.isp || '';
-            country = d.countryCode || '';
-          }
+          const r=await Promise.race([fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),new Promise((_,rej)=>setTimeout(rej,2000,'to'))]);
+          if(r.ok){const d=await r.json();score=d.abuseConfidenceScore||0;country=d.countryCode||'';}
         } catch(e) {
-          // Worker not deployed yet — use heuristic
-          score = ['185.220','194.165','45.142','91.108'].some(p => ip.startsWith(p)) ? 75 : 5;
+          score=['185.220','194.165','45.142'].some(p=>ip.startsWith(p))?75:5;
         }
-
-        const isThreat = score > 25;
-        const flag = countryFlag(country);
+        const bad=score>25;
         nodes.push({
-          label: ip,
-          sublabel: `${flag} ${isThreat ? '⚠ THREAT' : '✓ clean'} ${score}%`,
-          color: isThreat ? '#ff3333' : '#00aaff',
-          size: isThreat ? 9 + score/20 : 6,
-          speed: isThreat ? -0.005 : 0.003  // threats orbit backwards
+          label:ip,
+          sublabel:`${countryFlag(country)} ${bad?'⚠ THREAT':'✓ clean'} ${score}%`,
+          color:bad?DC.freq[4]:'#00D4FF',
+          size:bad?9+score/20:6,
+          speed:bad?-0.006:0.003,
         });
       }
-
       spawnNodes(nodes);
     }
 
-    // ── Boot ───────────────────────────────────────────────────
-    loop();
-    loadRealm(0);
+    // ── Boot ───────────────────────────────────────────────
+    document.fonts.ready.then(() => {
+      loop();
+      loadRealm(0);
+    });
   </script>
 </body>
 </html>
