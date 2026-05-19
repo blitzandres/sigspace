@@ -30,6 +30,16 @@
       data: {}                       // fetched real data per realm
     };
 
+    const DNS_DOMAINS = [
+      'google.com','youtube.com','github.com','apple.com','microsoft.com',
+      'cloudflare.com','netflix.com','twitter.com','reddit.com','amazon.com',
+      'discord.com','slack.com','zoom.us','dropbox.com','spotify.com',
+      'instagram.com','facebook.com','linkedin.com','twitch.tv','tiktok.com',
+      'icloud.com','akamai.com','fastly.com','cdn.jsdelivr.net'
+    ];
+    let _dnsIdx = 0;
+    let _dnsTimer = null;
+
     // ── Resize ─────────────────────────────────────────────────
     function resize() {
       canvas.width = window.innerWidth;
@@ -48,6 +58,7 @@
       ctx.fillRect(0, 0, S.W, S.H);
       drawGrid();
       drawNodes();
+      if (S.freq === 2) drawMeteors();
       drawCharacter();
       drawDial();
       if (S.transition > 0) { drawGlitch(); S.transition--; }
@@ -472,8 +483,88 @@
       spawnNodes(nodes);
     }
 
-    // Stub the other realm loaders (filled in later tasks)
-    async function loadStream()    { spawnNodes([{label:'[STREAM]',  sublabel:'→ task 8',color:'#ffaa00',size:8,speed:0.003}]); }
+    async function loadStream() {
+      if (_dnsTimer) clearInterval(_dnsTimer);
+      S.meteors = [];
+      spawnNodes([]); // no orbital nodes — meteors are the show
+      pumpDNS();
+      _dnsTimer = setInterval(pumpDNS, 2800);
+    }
+
+    async function pumpDNS() {
+      if (S.freq !== 2) { clearInterval(_dnsTimer); return; }
+      const domain = DNS_DOMAINS[_dnsIdx % DNS_DOMAINS.length];
+      _dnsIdx++;
+      try {
+        const r = await fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`, {
+          headers: { 'Accept': 'application/dns-json' }
+        });
+        const d = await r.json();
+        const answers = d.Answer || [];
+        const ip = answers.find(a => a.type === 1)?.data || '?';
+        const ttl = answers[0]?.TTL || 0;
+        spawnMeteor(domain, ip, ttl);
+      } catch(e) {
+        spawnMeteor(domain, 'NXDOMAIN', 0);
+      }
+    }
+
+    function spawnMeteor(domain, ip, ttl) {
+      const side = Math.floor(Math.random() * 4);
+      let sx, sy, ex, ey;
+      if (side === 0) { sx = Math.random()*S.W; sy = -20; ex = S.cx+(Math.random()-0.5)*200; ey = S.cy+(Math.random()-0.5)*100; }
+      else if (side===1){ sx=S.W+20; sy=Math.random()*S.H; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
+      else if (side===2){ sx=Math.random()*S.W; sy=S.H+20; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
+      else { sx=-20; sy=Math.random()*S.H; ex=S.cx+(Math.random()-0.5)*200; ey=S.cy+(Math.random()-0.5)*100; }
+
+      const isDNS = ['google.com','cloudflare.com','apple.com','microsoft.com'].some(d => domain.includes(d));
+      const isCDN = ['akamai','fastly','cdn','cloudflare','amazon'].some(k => (domain+ip).includes(k));
+      const col = isDNS ? '#00aaff' : isCDN ? '#ffaa00' : '#00ffaa';
+
+      S.meteors.push({ x:sx, y:sy, tx:ex, ty:ey, domain, ip, ttl, color:col,
+        life:120, maxLife:120, size: 2 + Math.random()*2 });
+    }
+
+    function drawMeteors() {
+      S.meteors = S.meteors.filter(m => m.life > 0);
+      S.meteors.forEach(m => {
+        const prog = 1 - (m.life / m.maxLife);
+        const x = m.x + (m.tx - m.x) * prog;
+        const y = m.y + (m.ty - m.y) * prog;
+        const alpha = Math.min(1, m.life / 20);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.shadowBlur = 8; ctx.shadowColor = m.color;
+
+        // meteor dot
+        ctx.beginPath();
+        ctx.arc(x, y, m.size, 0, Math.PI * 2);
+        ctx.fillStyle = m.color;
+        ctx.fill();
+
+        // tail
+        ctx.strokeStyle = m.color; ctx.lineWidth = 1.5; ctx.globalAlpha = alpha * 0.4;
+        ctx.beginPath();
+        const tailX = m.x + (m.tx - m.x) * Math.max(0, prog - 0.1);
+        const tailY = m.y + (m.ty - m.y) * Math.max(0, prog - 0.1);
+        ctx.moveTo(tailX, tailY); ctx.lineTo(x, y); ctx.stroke();
+
+        // domain label near target
+        if (prog > 0.6) {
+          ctx.globalAlpha = alpha * (prog - 0.6) / 0.4;
+          ctx.shadowBlur = 0;
+          ctx.font = '9px monospace';
+          ctx.fillStyle = m.color;
+          ctx.textAlign = 'left';
+          ctx.fillText(m.domain, x + 6, y - 2);
+          ctx.fillStyle = '#445566';
+          ctx.fillText(m.ip, x + 6, y + 9);
+        }
+        ctx.restore();
+        m.life--;
+      });
+    }
     async function loadBluetooth() { spawnNodes([{label:'[BT]',      sublabel:'→ task 9',color:'#aa66ff',size:8,speed:0.003}]); }
     async function loadThreat()    { spawnNodes([{label:'[THREAT]',  sublabel:'→ task 10',color:'#ff3333',size:8,speed:0.003}]); }
 
