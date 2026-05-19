@@ -370,19 +370,55 @@
       loadRealm(next);
     }
 
-    function loadRealm(f) {
+    async function loadRealm(f) {
       S.nodes = [];
       S.particles = [];
-      // Test: spawn 6 placeholder nodes
-      spawnNodes([
-        { label: '8.8.8.8',      sublabel: 'Google DNS',  color: '#00aaff', size: 8,  speed: 0.005 },
-        { label: '1.1.1.1',      sublabel: 'Cloudflare',  color: '#00ffaa', size: 7,  speed: 0.004 },
-        { label: '104.21.44.1',  sublabel: 'Cloudflare',  color: '#00aaff', size: 6,  speed: 0.003 },
-        { label: 'netflix.com',  sublabel: 'CDN',          color: '#ffaa00', size: 9,  speed: 0.006 },
-        { label: '185.220.101',  sublabel: 'TOR ⚠',        color: '#ff3333', size: 7,  speed: -0.004 },
-        { label: '192.168.1.1',  sublabel: 'Router 🏠',    color: '#aa66ff', size: 8,  speed: 0.003 }
-      ]);
+      S.meteors = [];
+
+      if (f === 0) await loadCarrier();
+      else if (f === 1) await loadTopology();
+      else if (f === 2) await loadStream();
+      else if (f === 3) await loadBluetooth();
+      else if (f === 4) await loadThreat();
     }
+
+    async function loadCarrier() {
+      let geo = S.data.carrier;
+      if (!geo) {
+        try {
+          const r = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,regionName,city,isp,as,query,lat,lon,timezone');
+          geo = await r.json();
+          S.data.carrier = geo;
+        } catch(e) {
+          geo = { query:'?.?.?.?', city:'Unknown', country:'Unknown', isp:'Unknown', as:'AS???' };
+        }
+      }
+
+      const flag = countryFlag(geo.countryCode || 'UN');
+      spawnNodes([
+        { label: geo.query,     sublabel: `${flag} ${geo.city}, ${geo.country}`, color: '#00aaff', size: 14, speed: 0.0015 },
+        { label: 'YOUR NODE',   sublabel: 'origin',     color: '#00ffaa', size: 10, speed: 0 },
+        { label: geo.isp || '?', sublabel: 'ISP',       color: '#00aaff', size: 8,  speed: 0.002 },
+        { label: (geo.as||'').split(' ')[0], sublabel: 'ASN',color:'#aa66ff',size:7,speed:0.003},
+        { label: geo.timezone||'',sublabel:'timezone',  color: '#445566', size: 5,  speed: -0.001 },
+        { label: `${geo.lat?.toFixed(2)},${geo.lon?.toFixed(2)}`, sublabel:'geo coords',color:'#334455',size:5,speed:0.002}
+      ]);
+
+      // fix YOUR NODE at center (distance=0 makes it sit on character)
+      S.nodes[1].distance = 0;
+      S.nodes[1].speed = 0;
+    }
+
+    function countryFlag(code) {
+      if (!code || code.length !== 2) return '🌐';
+      return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E0 + c.charCodeAt(0) - 65));
+    }
+
+    // Stub the other realm loaders (filled in later tasks)
+    async function loadTopology()  { spawnNodes([{label:'[TOPOLOGY]',sublabel:'→ task 7',color:'#00ffaa',size:8,speed:0.003}]); }
+    async function loadStream()    { spawnNodes([{label:'[STREAM]',  sublabel:'→ task 8',color:'#ffaa00',size:8,speed:0.003}]); }
+    async function loadBluetooth() { spawnNodes([{label:'[BT]',      sublabel:'→ task 9',color:'#aa66ff',size:8,speed:0.003}]); }
+    async function loadThreat()    { spawnNodes([{label:'[THREAT]',  sublabel:'→ task 10',color:'#ff3333',size:8,speed:0.003}]); }
 
     // ── Boot ───────────────────────────────────────────────────
     loop();
