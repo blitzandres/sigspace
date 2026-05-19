@@ -1,0 +1,31 @@
+{
+  "project": "SIGSPACE",
+  "version": "0.1.0",
+  "thesis_ref": "blitzandres/signet-thesis",
+  "bt_ref": "blitzandres/bluth-scan",
+  "netwatch_ref": "blitzandres/netwatch",
+  "last_session": "2026-05-18",
+  "resume_at": "task_2",
+  "notes": "Task 1 done: repo created, scaffold committed.",
+  "api_keys_ref": "Cloudflare Worker env vars — set via: wrangler secret put IPINFO_TOKEN && wrangler secret put ABUSEIPDB_KEY",
+  "infrastructure": {
+    "frontend_url": "https://blitzandres.github.io/sigspace",
+    "worker_url": "https://sigspace.blitzandres.workers.dev",
+    "github_pages": "enabled on main branch",
+    "all_free_tier": true
+  },
+  "phases": {
+    "task_1_scaffold": { "done": true, "name": "Repo + scaffold" },
+    "task_2_canvas_engine": { "done": false, "name": "Canvas engine + game loop" },
+    "task_3_character": { "done": false, "name": "Pixel character + terminal" },
+    "task_4_orbital_nodes": { "done": false, "name": "Orbital node system" },
+    "task_5_freq_dial": { "done": false, "name": "Frequency dial + transitions" },
+    "task_6_carrier": { "done": false, "name": "CARRIER realm — ip-api.com" },
+    "task_7_topology": { "done": false, "name": "TOPOLOGY realm — live connections" },
+    "task_8_stream": { "done": false, "name": "STREAM realm — DNS meteors" },
+    "task_9_bluetooth": { "done": false, "name": "BLUETOOTH realm — BLE nodes" },
+    "task_10_threat": { "done": false, "name": "THREAT realm — AbuseIPDB" },
+    "task_11_worker": { "done": false, "name": "Cloudflare Worker — API proxy" },
+    "task_12_deploy": { "done": false, "name": "Deploy: Pages + Worker + secrets" }
+  }
+}
