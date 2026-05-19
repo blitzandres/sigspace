@@ -71,7 +71,101 @@
     }
 
     // ── Placeholder draw functions (filled in later tasks) ─────
-    function drawNodes() {}
+    // ── Orbital Node System ────────────────────────────────────
+    function spawnNodes(dataArray) {
+      // dataArray: [{ label, sublabel, color, size, speed }]
+      S.nodes = dataArray.map((d, i) => ({
+        label:    d.label    || '???',
+        sublabel: d.sublabel || '',
+        color:    d.color    || S.freqColors[S.freq],
+        size:     d.size     || 6,
+        distance: 120 + (i % 4) * 55 + Math.random() * 30,
+        angle:    (i / dataArray.length) * Math.PI * 2 + Math.random() * 0.5,
+        speed:    (d.speed || 0.004) * (Math.random() > 0.5 ? 1 : -1),
+        pulseOff: Math.random() * Math.PI * 2
+      }));
+    }
+
+    function drawNodes() {
+      const col = S.freqColors[S.freq];
+
+      S.nodes.forEach(node => {
+        node.angle += node.speed;
+        const nx = S.cx + node.distance * Math.cos(node.angle);
+        const ny = S.cy + node.distance * Math.sin(node.angle);
+        const pulse = 0.7 + 0.3 * Math.sin(S.t * 0.04 + node.pulseOff);
+
+        // orbit ring (faint)
+        ctx.save();
+        ctx.strokeStyle = `rgba(${hexToRgb(col)},0.06)`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 8]);
+        ctx.beginPath();
+        ctx.arc(S.cx, S.cy, node.distance, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // connection line from character to node
+        ctx.strokeStyle = `rgba(${hexToRgb(node.color)},0.15)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(S.cx, S.cy);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+
+        // node glow
+        ctx.shadowBlur = 14 * pulse;
+        ctx.shadowColor = node.color;
+
+        // node circle
+        ctx.beginPath();
+        ctx.arc(nx, ny, node.size * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = node.color;
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // label
+        ctx.shadowBlur = 0;
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#aaccee';
+        ctx.textAlign = 'center';
+        ctx.fillText(node.label, nx, ny - node.size - 6);
+        if (node.sublabel) {
+          ctx.fillStyle = '#556677';
+          ctx.fillText(node.sublabel, nx, ny - node.size - 17);
+        }
+
+        ctx.restore();
+
+        // spawn trail particle occasionally
+        if (Math.random() < 0.08) {
+          S.particles.push({ x: nx, y: ny, vx: (Math.random()-0.5)*0.8,
+            vy: (Math.random()-0.5)*0.8, life: 30, color: node.color });
+        }
+      });
+
+      // draw + age particles
+      S.particles = S.particles.filter(p => p.life > 0);
+      S.particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.life / 30 * 0.6;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        p.x += p.vx; p.y += p.vy; p.life--;
+      });
+    }
+
+    // ── Helpers ────────────────────────────────────────────────
+    function hexToRgb(hex) {
+      const r = parseInt(hex.slice(1,3),16);
+      const g = parseInt(hex.slice(3,5),16);
+      const b = parseInt(hex.slice(5,7),16);
+      return `${r},${g},${b}`;
+    }
     function drawCharacter() {
       const x = S.cx, y = S.cy;
       const col = S.freqColors[S.freq];
@@ -156,7 +250,17 @@
     }
 
     function loadRealm(f) {
-      // filled in per realm tasks
+      S.nodes = [];
+      S.particles = [];
+      // Test: spawn 6 placeholder nodes
+      spawnNodes([
+        { label: '8.8.8.8',      sublabel: 'Google DNS',  color: '#00aaff', size: 8,  speed: 0.005 },
+        { label: '1.1.1.1',      sublabel: 'Cloudflare',  color: '#00ffaa', size: 7,  speed: 0.004 },
+        { label: '104.21.44.1',  sublabel: 'Cloudflare',  color: '#00aaff', size: 6,  speed: 0.003 },
+        { label: 'netflix.com',  sublabel: 'CDN',          color: '#ffaa00', size: 9,  speed: 0.006 },
+        { label: '185.220.101',  sublabel: 'TOR ⚠',        color: '#ff3333', size: 7,  speed: -0.004 },
+        { label: '192.168.1.1',  sublabel: 'Router 🏠',    color: '#aa66ff', size: 8,  speed: 0.003 }
+      ]);
     }
 
     // ── Boot ───────────────────────────────────────────────────
