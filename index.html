@@ -565,7 +565,53 @@
         m.life--;
       });
     }
-    async function loadBluetooth() { spawnNodes([{label:'[BT]',      sublabel:'→ task 9',color:'#aa66ff',size:8,speed:0.003}]); }
+    async function loadBluetooth() {
+      let devices = [];
+
+      // Try bluth-scan local backend
+      try {
+        const r = await Promise.race([
+          fetch('http://localhost:5050/api/devices'),
+          new Promise((_,rej) => setTimeout(rej, 1500, new Error('timeout')))
+        ]);
+        if (r.ok) {
+          const d = await r.json();
+          devices = (d.devices || d || []).slice(0, 10);
+        }
+      } catch(e) { /* offline */ }
+
+      // Fallback: realistic simulated BLE environment
+      if (!devices.length) {
+        devices = [
+          { name: 'AirPods Pro',    rssi: -42, address: 'AA:BB:CC:01' },
+          { name: 'Apple Watch',    rssi: -48, address: 'AA:BB:CC:02' },
+          { name: 'Mi Band 7',      rssi: -61, address: 'AA:BB:CC:03' },
+          { name: 'Unknown Device', rssi: -74, address: 'DE:AD:BE:EF' },
+          { name: 'iPhone 15',      rssi: -55, address: 'AA:BB:CC:04' },
+          { name: 'BLE Beacon',     rssi: -82, address: 'BA:DC:0F:FE' },
+        ];
+      }
+
+      const nodes = devices.map((d, i) => {
+        const rssi = d.rssi || -70;
+        // RSSI -30 (strong) → distance 80, RSSI -90 (weak) → distance 260
+        const distance = 80 + (Math.abs(rssi) - 30) * (180/60);
+        const strength = Math.max(0, Math.min(1, (rssi + 30) / -60));
+
+        return {
+          label: d.name || 'Unknown',
+          sublabel: `${rssi} dBm`,
+          color: '#aa66ff',
+          size: 4 + (1 - strength) * 8,
+          speed: 0.003 + i * 0.0002,
+          _distance: distance
+        };
+      });
+
+      spawnNodes(nodes);
+      // Override distances with RSSI-derived values
+      nodes.forEach((n, i) => { if (S.nodes[i]) S.nodes[i].distance = n._distance; });
+    }
     async function loadThreat()    { spawnNodes([{label:'[THREAT]',  sublabel:'→ task 10',color:'#ff3333',size:8,speed:0.003}]); }
 
     // ── Boot ───────────────────────────────────────────────────
