@@ -414,8 +414,65 @@
       return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E0 + c.charCodeAt(0) - 65));
     }
 
+    async function loadTopology() {
+      let connections = [];
+
+      // Try NetWatch local backend first
+      try {
+        const r = await Promise.race([
+          fetch('http://localhost:5001/api/connections'),
+          new Promise((_,rej) => setTimeout(rej, 1500, new Error('timeout')))
+        ]);
+        if (r.ok) {
+          const d = await r.json();
+          connections = (d.connections || d || []).slice(0, 12);
+        }
+      } catch(e) { /* offline */ }
+
+      // Fallback: simulated connections with realistic IPs
+      if (!connections.length) {
+        connections = [
+          { dst_ip:'8.8.8.8',   dst_host:'dns.google',     bytes:1240, proto:'UDP' },
+          { dst_ip:'1.1.1.1',   dst_host:'cloudflare.com', bytes:3200, proto:'TCP' },
+          { dst_ip:'17.57.144.1',dst_host:'apple.com',     bytes:8800, proto:'TCP' },
+          { dst_ip:'151.101.1.67',dst_host:'reddit.com',   bytes:4200, proto:'TCP' },
+          { dst_ip:'52.20.1.44', dst_host:'aws.com',       bytes:12000,proto:'TCP' },
+          { dst_ip:'104.21.14.1',dst_host:'cloudflare-cdn',bytes:6700, proto:'TCP' },
+        ];
+      }
+
+      // Enrich with geo (ip-api batch, free, max 100 per call, no key)
+      const ips = connections.map(c => c.dst_ip || c.ip).filter(Boolean).slice(0, 10);
+      let geoMap = {};
+      try {
+        const r = await fetch('https://ip-api.com/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ips.map(q => ({ query: q, fields: 'status,country,countryCode,city,isp,query' })))
+        });
+        const geos = await r.json();
+        geos.forEach(g => { if (g.status === 'success') geoMap[g.query] = g; });
+      } catch(e) {}
+
+      const nodes = connections.map((c, i) => {
+        const ip = c.dst_ip || c.ip || '?';
+        const geo = geoMap[ip] || {};
+        const flag = countryFlag(geo.countryCode);
+        const label = c.dst_host || ip;
+        const sublabel = geo.city ? `${flag} ${geo.city}` : (c.proto || '');
+        return {
+          label: label.length > 18 ? label.slice(0,18)+'…' : label,
+          sublabel,
+          color: '#00ffaa',
+          size: 5 + Math.min(12, Math.log2((c.bytes || 1000) / 100)),
+          speed: 0.002 + i * 0.0003
+        };
+      });
+
+      spawnNodes(nodes);
+    }
+
     // Stub the other realm loaders (filled in later tasks)
-    async function loadTopology()  { spawnNodes([{label:'[TOPOLOGY]',sublabel:'→ task 7',color:'#00ffaa',size:8,speed:0.003}]); }
     async function loadStream()    { spawnNodes([{label:'[STREAM]',  sublabel:'→ task 8',color:'#ffaa00',size:8,speed:0.003}]); }
     async function loadBluetooth() { spawnNodes([{label:'[BT]',      sublabel:'→ task 9',color:'#aa66ff',size:8,speed:0.003}]); }
     async function loadThreat()    { spawnNodes([{label:'[THREAT]',  sublabel:'→ task 10',color:'#ff3333',size:8,speed:0.003}]); }
