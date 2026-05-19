@@ -13,8 +13,89 @@
 <body>
   <canvas id="c"></canvas>
   <script>
-    // SIGSPACE — engine loads here in Task 2
-    console.log('SIGSPACE boot');
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+
+    // ── State ──────────────────────────────────────────────────
+    const S = {
+      W: 0, H: 0, cx: 0, cy: 0,   // canvas dimensions + center
+      freq: 0,                       // current frequency (0–4)
+      freqNames: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT'],
+      freqColors: ['#00aaff','#00ffaa','#ffaa00','#aa66ff','#ff3333'],
+      nodes: [],                     // orbital nodes for current realm
+      particles: [],                 // connection trail particles
+      meteors: [],                   // STREAM realm DNS meteors
+      transition: 0,                 // 0=stable, >0=glitch anim frames remaining
+      t: 0,                          // frame counter
+      data: {}                       // fetched real data per realm
+    };
+
+    // ── Resize ─────────────────────────────────────────────────
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      S.W = canvas.width;
+      S.H = canvas.height;
+      S.cx = S.W / 2;
+      S.cy = S.H / 2;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── Game Loop ──────────────────────────────────────────────
+    function loop() {
+      ctx.fillStyle = '#04080f';
+      ctx.fillRect(0, 0, S.W, S.H);
+      drawGrid();
+      drawNodes();
+      drawCharacter();
+      drawDial();
+      if (S.transition > 0) { drawGlitch(); S.transition--; }
+      S.t++;
+      requestAnimationFrame(loop);
+    }
+
+    // ── Grid ───────────────────────────────────────────────────
+    function drawGrid() {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,170,255,0.05)';
+      ctx.lineWidth = 1;
+      const step = 60;
+      for (let x = S.cx % step; x < S.W; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S.H); ctx.stroke();
+      }
+      for (let y = S.cy % step; y < S.H; y += step) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S.W, y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ── Placeholder draw functions (filled in later tasks) ─────
+    function drawNodes() {}
+    function drawCharacter() {}
+    function drawDial() {}
+    function drawGlitch() {}
+
+    // ── Keyboard ───────────────────────────────────────────────
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') switchFreq((S.freq + 1) % 5);
+      if (e.key === 'ArrowLeft')  switchFreq((S.freq + 4) % 5);
+    });
+
+    function switchFreq(next) {
+      S.freq = next;
+      S.transition = 20;
+      S.nodes = [];
+      loadRealm(next);
+    }
+
+    function loadRealm(f) {
+      // filled in per realm tasks
+    }
+
+    // ── Boot ───────────────────────────────────────────────────
+    loop();
+    loadRealm(0);
   </script>
 </body>
 </html>
