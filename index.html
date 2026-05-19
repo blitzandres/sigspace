@@ -72,7 +72,73 @@
 
     // ── Placeholder draw functions (filled in later tasks) ─────
     function drawNodes() {}
-    function drawCharacter() {}
+    function drawCharacter() {
+      const x = S.cx, y = S.cy;
+      const col = S.freqColors[S.freq];
+      const pulse = 0.7 + 0.3 * Math.sin(S.t * 0.05);
+
+      // glow aura
+      ctx.save();
+      ctx.shadowBlur = 30 * pulse;
+      ctx.shadowColor = col;
+
+      // desk / terminal (isometric slab — 3 parallelograms)
+      const dw = 44, dh = 14;
+      ctx.fillStyle = '#0a1a2e';
+      ctx.beginPath();
+      ctx.moveTo(x - dw, y + 14);
+      ctx.lineTo(x,      y + 14 - dh/2);
+      ctx.lineTo(x + dw, y + 14);
+      ctx.lineTo(x,      y + 14 + dh/2);
+      ctx.closePath(); ctx.fill();
+
+      // desk top edge highlight
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(x - dw, y + 14);
+      ctx.lineTo(x,      y + 14 - dh/2);
+      ctx.lineTo(x + dw, y + 14);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // monitor screen (glowing rect)
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.15 * pulse;
+      ctx.fillRect(x - 14, y - 10, 28, 18);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - 14, y - 10, 28, 18);
+
+      // monitor scanlines
+      ctx.strokeStyle = col; ctx.lineWidth = 0.5; ctx.globalAlpha = 0.3;
+      for (let i = y - 8; i < y + 8; i += 3) {
+        ctx.beginPath(); ctx.moveTo(x - 13, i); ctx.lineTo(x + 13, i); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // character body
+      ctx.fillStyle = '#c8d8f0';
+      ctx.fillRect(x - 5, y - 22, 10, 12);  // torso
+
+      // head
+      ctx.beginPath();
+      ctx.arc(x, y - 27, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#e8e8e8';
+      ctx.fill();
+
+      // arms
+      ctx.fillStyle = '#c8d8f0';
+      ctx.fillRect(x - 10, y - 20, 4, 8);   // left arm (toward desk)
+      ctx.fillRect(x + 6,  y - 20, 4, 8);   // right arm
+
+      // eyes (tiny glowing dots)
+      ctx.fillStyle = col;
+      ctx.shadowBlur = 6; ctx.shadowColor = col;
+      ctx.fillRect(x - 3, y - 29, 2, 2);
+      ctx.fillRect(x + 1, y - 29, 2, 2);
+
+      ctx.restore();
+    }
     function drawDial() {}
     function drawGlitch() {}
 
