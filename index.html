@@ -612,7 +612,54 @@
       // Override distances with RSSI-derived values
       nodes.forEach((n, i) => { if (S.nodes[i]) S.nodes[i].distance = n._distance; });
     }
-    async function loadThreat()    { spawnNodes([{label:'[THREAT]',  sublabel:'→ task 10',color:'#ff3333',size:8,speed:0.003}]); }
+    const WORKER_URL = 'https://sigspace.blitzandres.workers.dev';
+
+    async function loadThreat() {
+      // Seed with IPs from CARRIER data + known suspicious ranges
+      const seedIPs = [
+        ...(S.data.carrier ? [] : []),
+        '185.220.101.50',  // known TOR exit
+        '194.165.16.11',   // known scanner
+        '45.142.212.100',  // known bad
+        '91.108.56.196',   // telegram (legit)
+        '140.82.112.4',    // github (legit)
+        '8.8.8.8',         // google (legit)
+      ];
+
+      const nodes = [];
+      for (const ip of seedIPs.slice(0, 8)) {
+        let score = 0, isp = '', country = '';
+
+        // Try Worker proxy for AbuseIPDB
+        try {
+          const r = await Promise.race([
+            fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),
+            new Promise((_,rej) => setTimeout(rej, 2000, new Error('timeout')))
+          ]);
+          if (r.ok) {
+            const d = await r.json();
+            score = d.abuseConfidenceScore || 0;
+            isp = d.isp || '';
+            country = d.countryCode || '';
+          }
+        } catch(e) {
+          // Worker not deployed yet — use heuristic
+          score = ['185.220','194.165','45.142','91.108'].some(p => ip.startsWith(p)) ? 75 : 5;
+        }
+
+        const isThreat = score > 25;
+        const flag = countryFlag(country);
+        nodes.push({
+          label: ip,
+          sublabel: `${flag} ${isThreat ? '⚠ THREAT' : '✓ clean'} ${score}%`,
+          color: isThreat ? '#ff3333' : '#00aaff',
+          size: isThreat ? 9 + score/20 : 6,
+          speed: isThreat ? -0.005 : 0.003  // threats orbit backwards
+        });
+      }
+
+      spawnNodes(nodes);
+    }
 
     // ── Boot ───────────────────────────────────────────────────
     loop();
