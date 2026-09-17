@@ -1,31 +1,26 @@
 # SIGSPACE Setup
 
-## One-time steps (run once, then forget)
+## Local preview
+    python3 scripts/idle-server.py
+    # http://127.0.0.1:8765/
+    # Shuts down after 1 hour idle
 
-### 1. Enable GitHub Pages
-```bash
-gh api repos/blitzandres/sigspace/pages \
-  --method POST \
-  --field source='{"branch":"main","path":"/"}' \
-  --header "Accept: application/vnd.github+json"
-```
+## GitHub Pages
+Already enabled on main. Custom domain: vancouver.andresblitz.com
 
-### 2. Deploy Cloudflare Worker
-```bash
-cd worker
-npm install wrangler -g   # one-time
-wrangler login            # browser auth
-wrangler deploy
-```
+## Cloudflare Worker
+    cd worker
+    wrangler login
+    wrangler deploy
 
-### 3. Set API secrets (keys never touch files)
-```bash
-wrangler secret put IPINFO_TOKEN    # paste your key from ipinfo.io
-wrangler secret put ABUSEIPDB_KEY   # paste your key from abuseipdb.com
-```
+Secrets (keys never touch files):
+    wrangler secret put IPINFO_TOKEN
+    wrangler secret put ABUSEIPDB_KEY
 
-### Free API keys
-- ipinfo.io: https://ipinfo.io/signup (50k/month free)
-- AbuseIPDB: https://www.abuseipdb.com/register (1k/day free)
-- ip-api.com: no key needed (45 req/min free)
-- Cloudflare DoH: no key needed (unlimited free)
+The Worker also proxies ip-api (HTTP, server-side) and Cloudflare DoH, so GitHub Pages HTTPS can load CARRIER / TOPOLOGY / STREAM without mixed-content failures.
+
+Free APIs:
+- ip-api.com: no key (45 req/min), HTTP only, used via the Worker
+- ipinfo.io: https://ipinfo.io/signup
+- AbuseIPDB: https://www.abuseipdb.com/register
+- Cloudflare DoH: no key
