@@ -70,6 +70,33 @@
       display: none; text-shadow: 0 0 12px currentColor;
     }
     #sel-label.show { display: block; }
+
+    #channel {
+      position: absolute; top: 22px; left: 312px; width: 320px;
+      display: none; flex-direction: column; gap: 8px;
+      padding: 12px; pointer-events: auto;
+      background: rgba(8,10,16,0.92);
+      border: 1px solid rgba(0,255,136,0.35);
+      font-family: "JetBrains Mono", monospace;
+    }
+    #channel.open { display: flex; }
+    #channel.locked { border-color: rgba(255,51,102,0.55); }
+    #channel-head { font-family: Orbitron, sans-serif; font-size: 11px; letter-spacing: 0.16em; color: #00FF88; }
+    #channel.locked #channel-head { color: #FF3366; }
+    #channel-log { max-height: 140px; overflow: auto; display: flex; flex-direction: column; gap: 4px; font-size: 10px; }
+    #channel-log .me { color: #00D4FF; }
+    #channel-log .them { color: #00FF88; }
+    #channel-log .sys { color: #FFAA00; }
+    #channel-form { display: flex; gap: 6px; }
+    #channel-form input {
+      flex: 1; background: #0b0e14; border: 1px solid #223; color: #d0e0f0;
+      font: 11px "JetBrains Mono", monospace; padding: 6px 8px;
+    }
+    #channel-form button {
+      font-family: Orbitron, sans-serif; font-size: 10px; letter-spacing: 0.12em;
+      padding: 6px 10px; background: transparent; color: #00FF88; border: 1px solid #00FF88; cursor: pointer;
+    }
+
     #hint {
       position: absolute; bottom: 22px; left: 22px; font-size: 10px; color: #556; letter-spacing: 0.14em;
     }
@@ -91,6 +118,14 @@
     <div id="tele"></div>
     <div id="sel-label"></div>
     <div id="actions"></div>
+    <div id="channel">
+      <div id="channel-head">SEALED CHANNEL</div>
+      <div id="channel-log"></div>
+      <form id="channel-form" autocomplete="off">
+        <input id="channel-input" maxlength="240" placeholder="Message this node…" />
+        <button type="submit">SEND</button>
+      </form>
+    </div>
     <div id="hint">← → TUNE &nbsp;·&nbsp; CLICK A NODE</div>
   </div>
   <script>
@@ -104,6 +139,15 @@
     const selEl = document.getElementById('sel-label');
     const bootEl = document.getElementById('boot');
     const bootSub = document.getElementById('boot-sub');
+    const channelForm = document.getElementById('channel-form');
+    const channelInput = document.getElementById('channel-input');
+    channelForm.addEventListener('submit', e => {
+      e.preventDefault();
+      const text = channelInput.value.trim();
+      if (!text) return;
+      channelInput.value = '';
+      sendChannel(text);
+    });
 
     const DC = {
       bg: '#07070c',
@@ -115,11 +159,11 @@
     const WORKER_URL = 'https://sigspace.andres-491.workers.dev';
     const ACTIONS = [
       { id:'pin',     label:'PIN',     color:'#00D4FF' },
+      { id:'channel', label:'CHANNEL', color:'#00FF88' },
+      { id:'block',   label:'BLOCK',   color:'#FF3366' },
       { id:'toggle',  label:'TOGGLE',  color:'#00FF88' },
       { id:'request', label:'REQUEST', color:'#00D4FF' },
-      { id:'message', label:'MESSAGE', color:'#00FF88' },
       { id:'close',   label:'CLOSE',   color:'#FFAA00' },
-      { id:'deny',    label:'DENY',    color:'#FF3366' },
     ];
 
     const S = {
@@ -130,7 +174,11 @@
       log: [],
       workerOk: null,
       boot: 1,
+      blocked: new Set(JSON.parse(localStorage.getItem('sigspace-blocked') || '[]')),
+      channels: {},
+      channelIdx: null,
     };
+    const THREAT_BLOCK = 25;
 
     function rgb(hex) { return hex.slice(1).match(/../g).map(x => parseInt(x,16)); }
     function rgba(hex, a) { const [r,g,b] = rgb(hex); return `rgba(${r},${g},${b},${a})`; }
@@ -228,7 +276,11 @@
         flash: 0,
         flashCol: '#ffffff',
         msgBeam: 0,
+        blocked: S.blocked.has(d.label) || S.blocked.has(d.ip) || !!d.blocked,
+        threatScore: d.threatScore || 0,
+        ip: d.ip || '',
       }));
+      S.nodes.forEach(n => { if (n.blocked) { n.active = false; n.color = '#FF3366'; } });
       addLog('FIELD LOCK  ' + DC.names[S.freq], DC.freq[S.freq]);
       renderTele();
     }
@@ -238,14 +290,106 @@
       selEl.classList.remove('show');
       actionsEl.innerHTML = '';
     }
+
+    function isSuspicious(node) {
+      return !!(node.blocked || (node.threatScore || 0) >= THREAT_BLOCK);
+    }
+    function persistBlocked() {
+      localStorage.setItem('sigspace-blocked', JSON.stringify([...S.blocked]));
+    }
+    function blockNode(idx, reason) {
+      const node = S.nodes[idx];
+      if (!node) return;
+      node.blocked = true;
+      node.active = false;
+      node.color = '#FF3366';
+      node.flash = 30;
+      node.flashCol = '#FF3366';
+      S.blocked.add(node.label);
+      if (node.ip) S.blocked.add(node.ip);
+      persistBlocked();
+      addLog('BLOCKED: ' + node.label + (reason ? '  ·  ' + reason : ''), '#FF3366');
+      if (S.channelIdx === idx) closeChannel();
+      hideActions();
+    }
+    function closeChannel() {
+      S.channelIdx = null;
+      const el = document.getElementById('channel');
+      el.classList.remove('open');
+      el.classList.remove('locked');
+    }
+    function renderChannel() {
+      const el = document.getElementById('channel');
+      const log = document.getElementById('channel-log');
+      const head = document.getElementById('channel-head');
+      const node = S.nodes[S.channelIdx];
+      if (!node) { closeChannel(); return; }
+      const locked = isSuspicious(node);
+      el.classList.add('open');
+      el.classList.toggle('locked', locked);
+      head.textContent = locked ? 'CHANNEL REFUSED  ·  BLOCKED' : ('SEALED CHANNEL  ·  ' + node.label);
+      const msgs = S.channels[node.label] || [];
+      log.innerHTML = msgs.map(m =>
+        `<div class="${m.who}">${m.who === 'me' ? 'YOU' : node.label}: ${m.text}` +
+        (m.seal ? `  <span style="color:#556">${m.seal}</span>` : '') + '</div>'
+      ).join('') || '<div class="sys">Channel open. Locally sealed. Not a public feed.</div>';
+      log.scrollTop = log.scrollHeight;
+    }
+    async function sealText(text) {
+      try {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text + '|' + Date.now()));
+        return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0, 12);
+      } catch (e) { return 'local'; }
+    }
+    async function openChannel(idx) {
+      const node = S.nodes[idx];
+      if (!node) return;
+      if (isSuspicious(node)) {
+        blockNode(idx, 'suspicion');
+        return;
+      }
+      S.channelIdx = idx;
+      if (!S.channels[node.label]) S.channels[node.label] = [];
+      S.channels[node.label].push({ who:'sys', text:'Secure channel established with ' + node.label + '.' });
+      addLog('CHANNEL OPEN  ' + node.label, '#00FF88');
+      node.flash = 18; node.flashCol = '#00FF88'; node.msgBeam = 30;
+      renderChannel();
+    }
+    async function sendChannel(text) {
+      const node = S.nodes[S.channelIdx];
+      if (!node || isSuspicious(node)) {
+        if (node) blockNode(S.channelIdx, 'suspicion');
+        return;
+      }
+      const seal = await sealText(text);
+      S.channels[node.label].push({ who:'me', text, seal });
+      renderChannel();
+      addLog('SEALED → ' + node.label, '#00D4FF');
+      node.msgBeam = 40; node.flash = 16; node.flashCol = '#00D4FF';
+      setTimeout(() => {
+        if (S.channelIdx == null) return;
+        S.channels[node.label].push({
+          who:'them',
+          text: 'ACK on sealed channel.',
+          seal: 'peer',
+        });
+        renderChannel();
+      }, 700);
+    }
+
     function showActions(idx) {
       const node = S.nodes[idx];
       if (!node) return;
       S.selected = idx;
-      selEl.textContent = node.label + (node.sublabel ? '  ·  ' + node.sublabel : '');
-      selEl.style.color = node.color;
+      const tag = isSuspicious(node) ? '  ·  BLOCKED' : '';
+      selEl.textContent = node.label + (node.sublabel ? '  ·  ' + node.sublabel : '') + tag;
+      selEl.style.color = isSuspicious(node) ? '#FF3366' : node.color;
       selEl.classList.add('show');
-      actionsEl.innerHTML = ACTIONS.map(a =>
+      const acts = ACTIONS.filter(a => {
+        if (a.id === 'channel' && isSuspicious(node)) return false;
+        return true;
+      });
+      actionsEl.innerHTML = acts.map(a =>
         `<button data-act="${a.id}" style="color:${a.color}">${a.label}</button>`
       ).join('');
       actionsEl.classList.add('show');
@@ -264,105 +408,34 @@
           addLog(`${node.pinned?'PINNED':'UNPINNED'}: ${node.label}`, '#00D4FF');
           node.flash=18; node.flashCol='#00D4FF';
           break;
+        case 'channel':
+          openChannel(nodeIdx);
+          break;
+        case 'block':
+          blockNode(nodeIdx, 'manual');
+          break;
         case 'toggle':
           node.active = !node.active;
           addLog(`${node.active?'MONITORING':'IGNORED'}: ${node.label}`, '#00FF88');
           node.flash=18; node.flashCol='#00FF88';
           break;
         case 'request':
+          if (isSuspicious(node)) { blockNode(nodeIdx, 'suspicion'); return; }
           addLog(`CONN REQUEST → ${node.label}`, '#00D4FF');
           node.flash=22; node.flashCol='#00D4FF';
           node.msgBeam=40;
-          break;
-        case 'message':
-          addLog(`MESSAGE SENT → ${node.label}`, '#00FF88');
-          node.msgBeam=50;
-          node.flash=18; node.flashCol='#00FF88';
           break;
         case 'close':
           addLog(`CONN CLOSED: ${node.label}`, '#FFAA00');
           node.flash=25; node.flashCol='#FFAA00';
           node.active=false;
-          break;
-        case 'deny':
-          addLog(`DENIED: ${node.label}`, '#FF3366');
-          node.flash=30; node.flashCol='#FF3366';
-          node.active=false;
+          if (S.channelIdx === nodeIdx) closeChannel();
           break;
       }
-      S.selected = null;
-      hideActions();
-    }
-
-    function loop() {
-      ctx.fillStyle = DC.bg;
-      ctx.fillRect(0,0,S.W,S.H);
-      drawNebula();
-      drawStars();
-      drawGrid();
-      drawRings();
-      drawNodes();
-      if (S.freq === 2) drawMeteors();
-      drawCharacter();
-      if (S.transition > 0) { drawGlitch(); S.transition--; }
-      S.t++;
-      if (S.t % 30 === 0) renderTele();
-      requestAnimationFrame(loop);
-    }
-
-    function drawNebula() {
-      const c = DC.freq[S.freq];
-      const [r,g,b] = rgb(c);
-      S.nebula.forEach((n, i) => {
-        const x = n.x * S.W + Math.sin(S.t*0.002 + n.phase)*30;
-        const y = n.y * S.H + Math.cos(S.t*0.002 + n.phase)*20;
-        const g2 = ctx.createRadialGradient(x,y,0,x,y,n.r);
-        g2.addColorStop(0, `rgba(${r},${g},${b},${n.a})`);
-        g2.addColorStop(1, `rgba(${r},${g},${b},0)`);
-        ctx.fillStyle = g2;
-        ctx.beginPath(); ctx.arc(x,y,n.r,0,Math.PI*2); ctx.fill();
-      });
-      atm.style.background = `radial-gradient(ellipse at 50% 42%, ${rgba(c,0.10)} 0%, transparent 55%)`;
-    }
-
-    function drawStars() {
-      S.stars.forEach(s => {
-        const tw = 0.45 + 0.55 * Math.sin(S.t * s.speed + s.phase);
-        ctx.save();
-        ctx.globalAlpha = s.a * tw;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(s.x * S.W, s.y * S.H, s.r, 0, Math.PI*2);
-        ctx.fill();
-        ctx.restore();
-      });
-    }
-
-    function drawGrid() {
-      ctx.save();
-      ctx.strokeStyle = rgba(DC.freq[S.freq], 0.045);
-      ctx.lineWidth = 1;
-      const step = 80;
-      for (let x = S.cx%step; x < S.W; x += step) {
-        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,S.H); ctx.stroke();
+      if (actionId !== 'channel') {
+        S.selected = null;
+        hideActions();
       }
-      for (let y = S.cy%step; y < S.H; y += step) {
-        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(S.W,y); ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    function drawRings() {
-      if (S.t % 80 === 0) S.rings.push({ r:18, maxR:260, color: DC.freq[S.freq] });
-      S.rings = S.rings.filter(r => r.r < r.maxR);
-      S.rings.forEach(ring => {
-        ring.r += 2;
-        ctx.save();
-        ctx.strokeStyle = rgba(ring.color, 0.55 * (1 - ring.r/ring.maxR));
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(S.cx, S.cy, ring.r, 0, Math.PI*2); ctx.stroke();
-        ctx.restore();
-      });
     }
 
     function drawNodes() {
@@ -723,18 +796,34 @@
       const geos = await fetchBatchGeo(ips);
       const geoMap = {};
       (Array.isArray(geos)?geos:[]).forEach(g => { if (g && g.query) geoMap[g.query]=g; });
+      const scores = await Promise.all(ips.map(async ip => {
+        try {
+          const r = await Promise.race([
+            fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),
+            new Promise((_,rej)=>setTimeout(()=>rej(), 1200))
+          ]);
+          if (r.ok) { const d = await r.json(); return d.abuseConfidenceScore || 0; }
+        } catch (e) {}
+        return 0;
+      }));
+      const scoreMap = {};
+      ips.forEach((ip, i) => { scoreMap[ip] = scores[i] || 0; });
       spawnNodes(connections.map((c,i)=>{
         const ip=c.dst_ip||c.ip||'?';
         const geo=geoMap[ip]||{};
         const label=c.dst_host||ip;
+        const threatScore = scoreMap[ip] || 0;
+        const blocked = threatScore >= THREAT_BLOCK || S.blocked.has(ip) || S.blocked.has(label);
         return {
           label: label.length>18?label.slice(0,18)+'…':label,
-          sublabel: geo.city ? (countryFlag(geo.countryCode) + ' ' + geo.city) : (c.proto||''),
-          color: DC.freq[1],
+          sublabel: blocked ? ('BLOCKED  ' + threatScore + '%') : (geo.city ? (countryFlag(geo.countryCode) + ' ' + geo.city) : (c.proto||'')),
+          color: blocked ? '#FF3366' : DC.freq[1],
           size: 5+Math.min(12, Math.log2((c.bytes||1000)/100)),
-          speed: 0.002+i*0.0003,
+          speed: blocked ? -0.006 : 0.002+i*0.0003,
+          ip, threatScore, blocked,
         };
       }));
+      S.nodes.forEach((n, i) => { if (n.blocked) addLog('AUTO-BLOCK  ' + n.label + '  ' + n.threatScore + '%', '#FF3366'); });
     }
 
     async function loadStream() {
@@ -770,7 +859,9 @@
         const rssi=d.rssi||-70;
         const dist=80+(Math.abs(rssi)-30)*(180/60);
         const str=Math.max(0,Math.min(1,(rssi+30)/-60));
-        return {label:d.name||'Unknown',sublabel: rssi + ' dBm',color:DC.freq[3],size:4+(1-str)*8,speed:0.003+i*0.0002,_distance:dist};
+        const unknown = !d.name || d.name === 'Unknown Device' || d.name === 'BLE Beacon';
+        const suspicious = unknown && rssi < -78;
+        return {label:d.name||'Unknown',sublabel: rssi + ' dBm' + (suspicious ? '  ·  SUSPECT' : ''),color: suspicious ? '#FF3366' : DC.freq[3],size:4+(1-str)*8,speed:0.003+i*0.0002,_distance:dist, threatScore: suspicious ? 40 : 0, blocked: suspicious};
       });
       spawnNodes(nodes);
       nodes.forEach((n,i)=>{if(S.nodes[i])S.nodes[i].distance=n._distance;});
@@ -787,13 +878,14 @@
         } catch(e) {
           score=['185.220','194.165','45.142'].some(p=>ip.startsWith(p))?75:5;
         }
-        const bad=score>25;
+        const bad = score >= THREAT_BLOCK || S.blocked.has(ip);
         nodes.push({
           label:ip,
-          sublabel:`${countryFlag(country)} ${bad?'THREAT':'clean'} ${score}%`,
+          sublabel:`${countryFlag(country)} ${bad?'BLOCKED':'clean'} ${score}%`,
           color:bad?DC.freq[4]:'#00D4FF',
           size:bad?9+score/20:6,
           speed:bad?-0.006:0.003,
+          ip, threatScore: score, blocked: bad,
         });
       }
       spawnNodes(nodes);
