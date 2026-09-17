@@ -6,63 +6,138 @@
   <title>SIGSPACE</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0A0A0F; overflow: hidden; }
+    html, body { height: 100%; background: #07070c; overflow: hidden; }
     canvas { display: block; }
+    #atmosphere {
+      position: fixed; inset: 0; pointer-events: none; z-index: 2;
+      transition: background 0.8s ease;
+    }
     #scanlines {
       position: fixed; inset: 0; pointer-events: none; z-index: 10;
       background: repeating-linear-gradient(
         0deg, transparent, transparent 2px,
-        rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px
+        rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
       );
     }
     #vignette {
       position: fixed; inset: 0; pointer-events: none; z-index: 9;
-      background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%);
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.78) 100%);
+    }
+    #grain {
+      position: fixed; inset: 0; pointer-events: none; z-index: 11; opacity: 0.05;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    }
+    #hud { position: fixed; inset: 0; z-index: 8; pointer-events: none; color: #d0e0f0; font-family: "JetBrains Mono", monospace; }
+    #hud * { pointer-events: none; }
+    #hud button, #hud .hit { pointer-events: auto; }
+    #boot {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: rgba(7,7,12,0.92); transition: opacity 0.7s ease;
+    }
+    #boot .mark { font-family: Orbitron, sans-serif; font-weight: 900; letter-spacing: 0.35em; font-size: 28px; }
+    #boot .sub { font-size: 11px; letter-spacing: 0.22em; color: #7a8a9a; }
+    #boot .bar { width: 220px; height: 2px; background: #1a2230; overflow: hidden; }
+    #boot .bar > i { display: block; height: 100%; width: 0; background: #00d4ff; box-shadow: 0 0 12px #00d4ff; animation: load 1.4s ease forwards; }
+    @keyframes load { to { width: 100%; } }
+    #log {
+      position: absolute; top: 22px; left: 22px; width: 280px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    #log .row { font-size: 10px; letter-spacing: 0.04em; opacity: 0.9; text-shadow: 0 0 8px currentColor; }
+    #tele {
+      position: absolute; top: 22px; right: 22px; text-align: right; font-size: 10px; line-height: 1.7; color: #8aa;
+    }
+    #tele b { color: #d0e0f0; font-weight: 500; }
+    #actions {
+      position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%);
+      display: none; gap: 8px; padding: 10px 12px;
+      background: rgba(8,10,16,0.88); border: 1px solid rgba(0,212,255,0.35);
+    }
+    #actions.show { display: flex; }
+    #actions button {
+      font-family: Orbitron, sans-serif; font-size: 10px; letter-spacing: 0.12em;
+      padding: 7px 10px; background: transparent; color: inherit; cursor: pointer;
+      border: 1px solid currentColor;
+    }
+    #actions button:hover { background: rgba(255,255,255,0.06); }
+    #sel-label {
+      position: absolute; left: 50%; bottom: 148px; transform: translateX(-50%);
+      font-family: Orbitron, sans-serif; font-size: 11px; letter-spacing: 0.18em;
+      display: none; text-shadow: 0 0 12px currentColor;
+    }
+    #sel-label.show { display: block; }
+    #hint {
+      position: absolute; bottom: 22px; left: 22px; font-size: 10px; color: #556; letter-spacing: 0.14em;
     }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+  <div id="atmosphere"></div>
   <div id="scanlines"></div>
   <div id="vignette"></div>
+  <div id="grain"></div>
+  <div id="hud">
+    <div id="boot">
+      <div class="mark" id="boot-mark">SIGSPACE</div>
+      <div class="sub" id="boot-sub">LINKING SIGNAL FIELD</div>
+      <div class="bar"><i></i></div>
+    </div>
+    <div id="log"></div>
+    <div id="tele"></div>
+    <div id="sel-label"></div>
+    <div id="actions"></div>
+    <div id="hint">← → TUNE &nbsp;·&nbsp; CLICK A NODE</div>
+  </div>
   <script>
-    const canvas = document.getElementById('c');
-    const ctx    = canvas.getContext('2d');
 
-    // ── Design Tokens ──────────────────────────────────────
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const atm = document.getElementById('atmosphere');
+    const logEl = document.getElementById('log');
+    const teleEl = document.getElementById('tele');
+    const actionsEl = document.getElementById('actions');
+    const selEl = document.getElementById('sel-label');
+    const bootEl = document.getElementById('boot');
+    const bootSub = document.getElementById('boot-sub');
+
     const DC = {
-      bg:    '#0A0A0F',
+      bg: '#07070c',
       muted: '#3A4A5A',
-      fg:    '#D0E0F0',
-      freq:  ['#00D4FF','#00FF88','#FFAA00','#CC44FF','#FF3366'],
+      fg: '#D0E0F0',
+      freq: ['#00D4FF','#00FF88','#FFAA00','#CC44FF','#FF3366'],
       names: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT'],
     };
+    const WORKER_URL = 'https://sigspace.andres-491.workers.dev';
+    const ACTIONS = [
+      { id:'pin',     label:'PIN',     color:'#00D4FF' },
+      { id:'toggle',  label:'TOGGLE',  color:'#00FF88' },
+      { id:'request', label:'REQUEST', color:'#00D4FF' },
+      { id:'message', label:'MESSAGE', color:'#00FF88' },
+      { id:'close',   label:'CLOSE',   color:'#FFAA00' },
+      { id:'deny',    label:'DENY',    color:'#FF3366' },
+    ];
 
-    // ── State ──────────────────────────────────────────────
     const S = {
       W:0, H:0, cx:0, cy:0, freq:0,
-      nodes:[], particles:[], meteors:[], stars:[], rings:[],
+      nodes:[], particles:[], meteors:[], stars:[], rings:[], nebula:[],
       transition:0, t:0, data:{},
+      selected: null,
+      log: [],
+      workerOk: null,
+      boot: 1,
     };
 
-    // ── Helpers ────────────────────────────────────────────
-    function rgb(hex) {
-      return hex.slice(1).match(/../g).map(x => parseInt(x,16));
-    }
-    function rgba(hex, a) {
-      const [r,g,b] = rgb(hex);
-      return `rgba(${r},${g},${b},${a})`;
-    }
-    function freqCol(f=S.freq, a=1) {
-      return a===1 ? DC.freq[f] : rgba(DC.freq[f], a);
-    }
+    function rgb(hex) { return hex.slice(1).match(/../g).map(x => parseInt(x,16)); }
+    function rgba(hex, a) { const [r,g,b] = rgb(hex); return `rgba(${r},${g},${b},${a})`; }
+    function freqCol(f=S.freq, a=1) { return a===1 ? DC.freq[f] : rgba(DC.freq[f], a); }
 
-    // ── Resize ─────────────────────────────────────────────
     function resize() {
-      canvas.width  = window.innerWidth;
+      canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       S.W = canvas.width; S.H = canvas.height;
       S.cx = S.W/2; S.cy = S.H/2;
@@ -70,19 +145,23 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // ── Stars ──────────────────────────────────────────────
     function initStars() {
-      S.stars = Array.from({length:140}, () => ({
+      S.stars = Array.from({length: 180}, () => ({
         x: Math.random(), y: Math.random(),
-        r: Math.random()*1.4+0.2,
+        r: Math.random()*1.5+0.2,
         a: Math.random()*0.55+0.08,
         phase: Math.random()*Math.PI*2,
         speed: Math.random()*0.004+0.001,
       }));
+      S.nebula = Array.from({length: 5}, (_, i) => ({
+        x: Math.random(), y: Math.random(),
+        r: 180 + Math.random()*260,
+        a: 0.05 + Math.random()*0.07,
+        phase: Math.random()*Math.PI*2,
+      }));
     }
     initStars();
 
-    // ── Glow helper ────────────────────────────────────────
     function glowCircle(x, y, r, hex, maxA=0.85) {
       const [rv,gv,bv] = rgb(hex);
       [[r*7,0.04],[r*3.5,0.12],[r*1.8,0.35],[r,maxA]].forEach(([rad,a]) => {
@@ -93,8 +172,6 @@
         ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill();
       });
     }
-
-    // ── HUD corner brackets ────────────────────────────────
     function hudCorners(x, y, w, h, hex, sz=14) {
       ctx.save();
       ctx.strokeStyle = rgba(hex, 0.55);
@@ -107,33 +184,147 @@
       ctx.restore();
     }
 
-    // ── Label pill background ──────────────────────────────
-    function labelPill(x, y, text, font) {
-      ctx.font = font || '9px "JetBrains Mono"';
-      const mw = ctx.measureText(text).width + 8;
-      ctx.fillStyle = 'rgba(6,8,14,0.8)';
-      ctx.beginPath();
-      ctx.rect(x - mw/2, y - 12, mw, 13);
-      ctx.fill();
+    function addLog(msg, color) {
+      S.log.unshift({ msg, color: color||'#00D4FF', t: S.t });
+      if (S.log.length > 7) S.log.pop();
+      renderLog();
+    }
+    function renderLog() {
+      logEl.innerHTML = S.log.map(r =>
+        `<div class="row" style="color:${r.color}">${r.msg}</div>`
+      ).join('');
+    }
+    function renderTele() {
+      const src = S.workerOk ? 'WORKER' : (S.workerOk === false ? 'FALLBACK' : 'PROBE');
+      teleEl.innerHTML =
+        `REALM <b>${DC.names[S.freq]}</b><br>` +
+        `NODES <b>${S.nodes.length}</b><br>` +
+        `LINK <b style="color:${S.workerOk?'#00FF88':'#FFAA00'}">${src}</b><br>` +
+        `UPTIME <b>${Math.floor(S.t/60)}m</b>`;
     }
 
-    // ── Game Loop ──────────────────────────────────────────
+    function nodeXY(node) {
+      return {
+        x: S.cx + node.distance * Math.cos(node.angle),
+        y: S.cy + node.distance * Math.sin(node.angle),
+      };
+    }
+
+    function spawnNodes(arr) {
+      S.selected = null;
+      hideActions();
+      S.nodes = arr.map((d, i) => ({
+        label: d.label || '???',
+        sublabel: d.sublabel || '',
+        color: d.color || DC.freq[S.freq],
+        size: d.size || 6,
+        distance: d._distance || (130 + (i%4)*60 + Math.random()*20),
+        angle: (i / Math.max(arr.length,1)) * Math.PI*2 + Math.random()*0.3,
+        speed: (d.speed || 0.004) * (Math.random()>0.5?1:-1),
+        baseSpeed: (d.speed || 0.004) * (Math.random()>0.5?1:-1),
+        phase: Math.random()*Math.PI*2,
+        pinned: false,
+        active: true,
+        flash: 0,
+        flashCol: '#ffffff',
+        msgBeam: 0,
+      }));
+      addLog('FIELD LOCK  ' + DC.names[S.freq], DC.freq[S.freq]);
+      renderTele();
+    }
+
+    function hideActions() {
+      actionsEl.classList.remove('show');
+      selEl.classList.remove('show');
+      actionsEl.innerHTML = '';
+    }
+    function showActions(idx) {
+      const node = S.nodes[idx];
+      if (!node) return;
+      S.selected = idx;
+      selEl.textContent = node.label + (node.sublabel ? '  ·  ' + node.sublabel : '');
+      selEl.style.color = node.color;
+      selEl.classList.add('show');
+      actionsEl.innerHTML = ACTIONS.map(a =>
+        `<button data-act="${a.id}" style="color:${a.color}">${a.label}</button>`
+      ).join('');
+      actionsEl.classList.add('show');
+      [...actionsEl.querySelectorAll('button')].forEach(btn => {
+        btn.onclick = () => executeAction(btn.dataset.act, idx);
+      });
+    }
+
+    function executeAction(actionId, nodeIdx) {
+      const node = S.nodes[nodeIdx];
+      if (!node) return;
+      switch(actionId) {
+        case 'pin':
+          node.pinned = !node.pinned;
+          node.speed = node.pinned ? 0 : node.baseSpeed;
+          addLog(`${node.pinned?'PINNED':'UNPINNED'}: ${node.label}`, '#00D4FF');
+          node.flash=18; node.flashCol='#00D4FF';
+          break;
+        case 'toggle':
+          node.active = !node.active;
+          addLog(`${node.active?'MONITORING':'IGNORED'}: ${node.label}`, '#00FF88');
+          node.flash=18; node.flashCol='#00FF88';
+          break;
+        case 'request':
+          addLog(`CONN REQUEST → ${node.label}`, '#00D4FF');
+          node.flash=22; node.flashCol='#00D4FF';
+          node.msgBeam=40;
+          break;
+        case 'message':
+          addLog(`MESSAGE SENT → ${node.label}`, '#00FF88');
+          node.msgBeam=50;
+          node.flash=18; node.flashCol='#00FF88';
+          break;
+        case 'close':
+          addLog(`CONN CLOSED: ${node.label}`, '#FFAA00');
+          node.flash=25; node.flashCol='#FFAA00';
+          node.active=false;
+          break;
+        case 'deny':
+          addLog(`DENIED: ${node.label}`, '#FF3366');
+          node.flash=30; node.flashCol='#FF3366';
+          node.active=false;
+          break;
+      }
+      S.selected = null;
+      hideActions();
+    }
+
     function loop() {
       ctx.fillStyle = DC.bg;
       ctx.fillRect(0,0,S.W,S.H);
+      drawNebula();
       drawStars();
       drawGrid();
       drawRings();
       drawNodes();
       if (S.freq === 2) drawMeteors();
       drawCharacter();
-      drawDial();
       if (S.transition > 0) { drawGlitch(); S.transition--; }
       S.t++;
+      if (S.t % 30 === 0) renderTele();
       requestAnimationFrame(loop);
     }
 
-    // ── Stars ──────────────────────────────────────────────
+    function drawNebula() {
+      const c = DC.freq[S.freq];
+      const [r,g,b] = rgb(c);
+      S.nebula.forEach((n, i) => {
+        const x = n.x * S.W + Math.sin(S.t*0.002 + n.phase)*30;
+        const y = n.y * S.H + Math.cos(S.t*0.002 + n.phase)*20;
+        const g2 = ctx.createRadialGradient(x,y,0,x,y,n.r);
+        g2.addColorStop(0, `rgba(${r},${g},${b},${n.a})`);
+        g2.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.fillStyle = g2;
+        ctx.beginPath(); ctx.arc(x,y,n.r,0,Math.PI*2); ctx.fill();
+      });
+      atm.style.background = `radial-gradient(ellipse at 50% 42%, ${rgba(c,0.10)} 0%, transparent 55%)`;
+    }
+
     function drawStars() {
       S.stars.forEach(s => {
         const tw = 0.45 + 0.55 * Math.sin(S.t * s.speed + s.phase);
@@ -147,7 +338,6 @@
       });
     }
 
-    // ── Grid ───────────────────────────────────────────────
     function drawGrid() {
       ctx.save();
       ctx.strokeStyle = rgba(DC.freq[S.freq], 0.045);
@@ -162,84 +352,73 @@
       ctx.restore();
     }
 
-    // ── Expanding energy rings ─────────────────────────────
     function drawRings() {
-      if (S.t % 80 === 0)
-        S.rings.push({ r:18, maxR:260, color: DC.freq[S.freq] });
+      if (S.t % 80 === 0) S.rings.push({ r:18, maxR:260, color: DC.freq[S.freq] });
       S.rings = S.rings.filter(r => r.r < r.maxR);
       S.rings.forEach(ring => {
         ring.r += 2;
-        const a = 0.55 * (1 - ring.r/ring.maxR);
         ctx.save();
-        ctx.strokeStyle = rgba(ring.color, a);
+        ctx.strokeStyle = rgba(ring.color, 0.55 * (1 - ring.r/ring.maxR));
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.arc(S.cx, S.cy, ring.r, 0, Math.PI*2); ctx.stroke();
         ctx.restore();
       });
     }
 
-    // ── Orbital Node System ────────────────────────────────
-    function spawnNodes(arr) {
-      S.nodes = arr.map((d, i) => ({
-        label:    d.label    || '???',
-        sublabel: d.sublabel || '',
-        color:    d.color    || DC.freq[S.freq],
-        size:     d.size     || 6,
-        distance: d._distance || (130 + (i%4)*60 + Math.random()*20),
-        angle:    (i / Math.max(arr.length,1)) * Math.PI*2 + Math.random()*0.3,
-        speed:    (d.speed || 0.004) * (Math.random()>0.5?1:-1),
-        phase:    Math.random()*Math.PI*2,
-      }));
-    }
-
     function drawNodes() {
-      S.nodes.forEach(node => {
+      S.nodes.forEach((node, idx) => {
         node.angle += node.speed;
-        const nx = S.cx + node.distance * Math.cos(node.angle);
-        const ny = S.cy + node.distance * Math.sin(node.angle);
+        const {x:nx, y:ny} = nodeXY(node);
         const pulse = 0.78 + 0.22 * Math.sin(S.t*0.04 + node.phase);
-
+        const dim = node.active ? 1 : 0.28;
         ctx.save();
+        ctx.globalAlpha = dim;
 
-        // Orbit ring
         ctx.strokeStyle = rgba(node.color, 0.07);
         ctx.lineWidth = 1;
         ctx.setLineDash([3,14]);
         ctx.beginPath(); ctx.arc(S.cx, S.cy, node.distance, 0, Math.PI*2); ctx.stroke();
         ctx.setLineDash([]);
 
-        // Animated connection line
         ctx.strokeStyle = rgba(node.color, 0.14);
-        ctx.lineWidth = 1;
         ctx.setLineDash([5,9]);
         ctx.lineDashOffset = -(S.t * 0.6);
         ctx.beginPath(); ctx.moveTo(S.cx, S.cy); ctx.lineTo(nx, ny); ctx.stroke();
         ctx.setLineDash([]); ctx.lineDashOffset = 0;
 
-        // Multi-layer glow
-        glowCircle(nx, ny, node.size * pulse, node.color, 0.9);
+        if (node.msgBeam > 0) {
+          ctx.strokeStyle = rgba(node.color, 0.55 * (node.msgBeam/50));
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(S.cx, S.cy); ctx.lineTo(nx, ny); ctx.stroke();
+          node.msgBeam--;
+        }
 
-        // White core
+        glowCircle(nx, ny, node.size * pulse, node.color, 0.9);
         ctx.beginPath(); ctx.arc(nx, ny, node.size*0.45*pulse, 0, Math.PI*2);
         ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fill();
 
-        // Labels
-        const ly = ny - node.size*pulse - 7;
-        if (node.sublabel) {
-          labelPill(nx, ly-11, node.sublabel);
-          ctx.font = '8px "JetBrains Mono"';
-          ctx.fillStyle = DC.muted; ctx.textAlign='center';
-          ctx.fillText(node.sublabel, nx, ly-2);
+        if (S.selected === idx) {
+          ctx.strokeStyle = rgba(node.color, 0.8);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(nx, ny, node.size*pulse + 10, 0, Math.PI*2); ctx.stroke();
         }
-        labelPill(nx, ly, node.label);
+        if (node.flash > 0) {
+          glowCircle(nx, ny, node.size*pulse + 8, node.flashCol, node.flash/18);
+          node.flash--;
+        }
+
+        const ly = ny - node.size*pulse - 7;
         ctx.font = '10px "JetBrains Mono"';
         ctx.fillStyle = node.color; ctx.textAlign='center';
         ctx.fillText(node.label, nx, ly+9);
-
+        if (node.sublabel) {
+          ctx.font = '8px "JetBrains Mono"';
+          ctx.fillStyle = DC.muted;
+          ctx.fillText(node.sublabel, nx, ly-2);
+        }
         ctx.restore();
 
-        // Spark particles
-        if (Math.random() < 0.06) {
+        if (node.active && Math.random() < 0.06) {
           S.particles.push({
             x:nx, y:ny, vx:(Math.random()-0.5)*1.4, vy:(Math.random()-0.5)*1.4,
             life:45, max:45, color:node.color, r:Math.random()*2+0.5,
@@ -247,7 +426,6 @@
         }
       });
 
-      // Particles
       S.particles = S.particles.filter(p => p.life > 0);
       S.particles.forEach(p => {
         ctx.save();
@@ -260,18 +438,12 @@
       });
     }
 
-    // ── Pixel Character ────────────────────────────────────
     function drawCharacter() {
-      const x=S.cx, y=S.cy;
+      const x=S.cx, y=S.cy + Math.sin(S.t*0.05)*2;
       const clr = DC.freq[S.freq];
       const pulse = 0.7 + 0.3*Math.sin(S.t*0.05);
-
       ctx.save();
-
-      // HUD brackets
       hudCorners(x-52, y-58, 104, 84, clr, 15);
-
-      // Scan beam
       const scanY = y - 32 + ((S.t * 0.9) % 64);
       const sg = ctx.createLinearGradient(x-52, scanY, x+52, scanY);
       sg.addColorStop(0, 'transparent');
@@ -280,7 +452,6 @@
       ctx.fillStyle = sg;
       ctx.fillRect(x-52, scanY, 104, 2);
 
-      // Desk slab
       ctx.fillStyle = '#0D1520';
       ctx.beginPath();
       ctx.moveTo(x-44,y+14); ctx.lineTo(x,y+7); ctx.lineTo(x+44,y+14); ctx.lineTo(x,y+21);
@@ -289,157 +460,62 @@
       ctx.beginPath();
       ctx.moveTo(x-44,y+14); ctx.lineTo(x,y+7); ctx.lineTo(x+44,y+14); ctx.stroke();
 
-      // Monitor glow fill
-      ctx.fillStyle = rgba(clr, 0.12*pulse);
+      ctx.fillStyle = rgba(clr, 0.16*pulse);
       ctx.fillRect(x-14,y-11,28,19);
       ctx.strokeStyle = clr; ctx.lineWidth=1.5;
       ctx.strokeRect(x-14,y-11,28,19);
+      ctx.font = '6px "Orbitron"';
+      ctx.fillStyle = clr; ctx.textAlign='center';
+      ctx.fillText(DC.names[S.freq].slice(0,4), x, y+2);
 
-      // Scanlines on monitor
-      ctx.lineWidth=0.5;
-      for (let i=y-9; i<y+8; i+=3) {
-        ctx.strokeStyle = rgba(clr, 0.18);
-        ctx.beginPath(); ctx.moveTo(x-13,i); ctx.lineTo(x+13,i); ctx.stroke();
-      }
-
-      // Cursor blink
-      if (Math.floor(S.t/28)%2===0) {
-        ctx.fillStyle = clr;
-        ctx.fillRect(x-9, y+2, 6, 2);
-      }
-
-      // Body
       ctx.fillStyle = '#B0C4DC'; ctx.fillRect(x-5, y-23, 10, 12);
       ctx.beginPath(); ctx.arc(x, y-28, 6, 0, Math.PI*2);
       ctx.fillStyle = '#D0E0F0'; ctx.fill();
       ctx.fillStyle = '#B0C4DC';
       ctx.fillRect(x-11, y-21, 4, 9);
       ctx.fillRect(x+7,  y-21, 4, 9);
-
-      // Glowing eyes
       glowCircle(x-2, y-29, 1.5, clr, 1);
       glowCircle(x+2, y-29, 1.5, clr, 1);
-
       ctx.restore();
     }
 
-    // ── Frequency Dial (HUD Style) ─────────────────────────
-    function drawDial() {
-      const clr = DC.freq[S.freq];
-      const dW=370, dH=72, dX=S.cx-dW/2, dY=S.H-dH-14;
-
-      ctx.save();
-
-      // Panel
-      ctx.fillStyle = 'rgba(8,10,16,0.9)';
-      ctx.fillRect(dX, dY, dW, dH);
-      ctx.strokeStyle = rgba(clr, 0.38); ctx.lineWidth=1;
-      ctx.strokeRect(dX, dY, dW, dH);
-      hudCorners(dX, dY, dW, dH, clr, 12);
-
-      // Freq name
-      ctx.font = 'bold 13px "Orbitron"';
-      ctx.fillStyle = clr; ctx.textAlign='center';
-      ctx.shadowBlur=16; ctx.shadowColor=clr;
-      ctx.fillText(`FREQ: ${DC.names[S.freq]}`, S.cx, dY+20);
-      ctx.shadowBlur=0;
-
-      // Notches
-      const nW = dW/5;
-      for (let i=0; i<5; i++) {
-        const nx = dX + nW*i + nW/2;
-        const active = i===S.freq;
-        const nc = DC.freq[i];
-
-        // Active notch glow strip
-        if (active) {
-          const bg = ctx.createLinearGradient(nx-26,dY+26,nx+26,dY+26);
-          bg.addColorStop(0,'transparent');
-          bg.addColorStop(0.5, rgba(nc,0.3));
-          bg.addColorStop(1,'transparent');
-          ctx.fillStyle=bg;
-          ctx.fillRect(nx-26, dY+26, 52, 22);
-        }
-
-        // Tick mark
-        ctx.strokeStyle = active ? nc : rgba(nc, 0.28);
-        ctx.lineWidth = active ? 2 : 1;
-        ctx.beginPath();
-        ctx.moveTo(nx, dY+26);
-        ctx.lineTo(nx, dY+(active?42:36));
-        ctx.stroke();
-
-        // Active glow dot
-        if (active) glowCircle(nx, dY+47, 4, nc, 1);
-
-        // Label
-        ctx.font = active ? 'bold 8px "Orbitron"' : '7px "JetBrains Mono"';
-        ctx.fillStyle = active ? nc : rgba(nc, 0.38);
-        ctx.textAlign='center';
-        ctx.fillText(DC.names[i], nx, dY+63);
-      }
-
-      // Key hint
-      ctx.font = '7px "JetBrains Mono"';
-      ctx.fillStyle = rgba(clr, 0.4);
-      ctx.textAlign='right';
-      ctx.fillText('← → TUNE', dX+dW-8, dY+9);
-
-      ctx.restore();
-    }
-
-    // ── Glitch ─────────────────────────────────────────────
     function drawGlitch() {
       const k = S.transition/20;
       ctx.save();
-
-      // Horizontal strip tears
       for (let i=0; i<Math.ceil(8*k); i++) {
         const ty = Math.random()*S.H;
         const th = Math.random()*7+1;
         const tx = (Math.random()-0.5)*35*k;
         ctx.drawImage(canvas, 0,ty,S.W,th, tx,ty,S.W,th);
       }
-
-      // Color channel offset
       ctx.globalAlpha = 0.1*k;
       ctx.globalCompositeOperation = 'screen';
-      ctx.drawImage(canvas, -4*k, 0); // red shift left
-      ctx.drawImage(canvas, 4*k, 0);  // blue shift right
+      ctx.drawImage(canvas, -4*k, 0);
+      ctx.drawImage(canvas, 4*k, 0);
       ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-
-      // Static noise
       ctx.globalAlpha = 0.1*k;
       for (let i=0; i<160; i++) {
         ctx.fillStyle = Math.random()>0.55 ? '#ffffff' : DC.freq[S.freq];
         ctx.fillRect(Math.random()*S.W, Math.random()*S.H, 2, 1);
       }
-      ctx.globalAlpha=1;
-
-      // Flash freq name
+      ctx.globalAlpha = k*0.85;
       ctx.font = `bold ${29+Math.random()*10}px "Orbitron"`;
       ctx.fillStyle = DC.freq[S.freq];
-      ctx.globalAlpha = k*0.85;
       ctx.textAlign='center';
       ctx.shadowBlur=28; ctx.shadowColor=DC.freq[S.freq];
       ctx.fillText(DC.names[S.freq], S.cx+(Math.random()-0.5)*10, S.cy-94);
       ctx.shadowBlur=0; ctx.globalAlpha=1;
-
       ctx.restore();
     }
 
-    // ── STREAM: DNS meteors ────────────────────────────────
     const DNS_DOMAINS = [
       'google.com','youtube.com','github.com','apple.com','microsoft.com',
-      'cloudflare.com','netflix.com','twitter.com','reddit.com','amazon.com',
-      'discord.com','slack.com','zoom.us','dropbox.com','spotify.com',
-      'instagram.com','facebook.com','linkedin.com','twitch.tv','tiktok.com',
-      'icloud.com','akamai.com','fastly.com','cdn.jsdelivr.net'
+      'cloudflare.com','netflix.com','reddit.com','amazon.com',
+      'discord.com','slack.com','spotify.com','icloud.com','akamai.com','fastly.com'
     ];
     let _dnsIdx=0, _dnsTimer=null;
 
-    function spawnMeteor(domain, ip, ttl) {
+    function spawnMeteor(domain, ip) {
       const side = Math.floor(Math.random()*4);
       let sx, sy;
       if (side===0){sx=Math.random()*S.W; sy=-20;}
@@ -448,7 +524,7 @@
       else{sx=-20; sy=Math.random()*S.H;}
       const ex=S.cx+(Math.random()-0.5)*200, ey=S.cy+(Math.random()-0.5)*100;
       const isDNS=['google','cloudflare','apple','microsoft'].some(k=>domain.includes(k));
-      const isCDN=['akamai','fastly','cdn','amazon'].some(k=>(domain+ip).includes(k));
+      const isCDN=['akamai','fastly','amazon'].some(k=>(domain+ip).includes(k));
       const color = isDNS?'#00D4FF': isCDN?'#FFAA00':'#00FF88';
       S.meteors.push({x:sx,y:sy,tx:ex,ty:ey,domain,ip,color,life:135,max:135,size:2.2+Math.random()*1.8});
     }
@@ -460,17 +536,10 @@
         const x = m.x+(m.tx-m.x)*prog;
         const y = m.y+(m.ty-m.y)*prog;
         const alpha = Math.min(1, m.life/28);
-
         ctx.save(); ctx.globalAlpha=alpha;
-
-        // Outer glow
         glowCircle(x, y, m.size, m.color, 0.7);
-
-        // Core
         ctx.fillStyle='#ffffff';
         ctx.beginPath(); ctx.arc(x,y,m.size*0.55,0,Math.PI*2); ctx.fill();
-
-        // Tail gradient
         const tailX=m.x+(m.tx-m.x)*Math.max(0,prog-0.14);
         const tailY=m.y+(m.ty-m.y)*Math.max(0,prog-0.14);
         const tg = ctx.createLinearGradient(tailX,tailY,x,y);
@@ -479,8 +548,6 @@
         ctx.strokeStyle=tg; ctx.lineWidth=1.8;
         ctx.globalAlpha=alpha*0.7;
         ctx.beginPath(); ctx.moveTo(tailX,tailY); ctx.lineTo(x,y); ctx.stroke();
-
-        // Label
         if (prog > 0.52) {
           ctx.globalAlpha = alpha*(prog-0.52)/0.48;
           ctx.font='9px "JetBrains Mono"'; ctx.textAlign='left';
@@ -494,28 +561,116 @@
       });
     }
 
-    // ── Input ──────────────────────────────────────────────
+    function renderDial() {
+      let el = document.getElementById('dial');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'dial';
+        el.style.cssText = 'position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;padding:10px 14px;background:rgba(8,10,16,0.9);border:1px solid rgba(255,255,255,0.08);pointer-events:auto;';
+        document.getElementById('hud').appendChild(el);
+      }
+      el.innerHTML = DC.names.map((n,i) => {
+        const on = i===S.freq;
+        const c = DC.freq[i];
+        return `<button data-f="${i}" style="font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:0.14em;padding:8px 12px;border:1px solid ${on?c:'#223'};background:${on?rgba(c,0.15):'transparent'};color:${on?c:'#556'};box-shadow:${on?'0 0 16px '+rgba(c,0.35):'none'}">${n}</button>`;
+      }).join('');
+      [...el.querySelectorAll('button')].forEach(b => b.onclick = () => {
+        const next = +b.dataset.f;
+        if (next !== S.freq) switchFreq(next);
+      });
+    }
+
     window.addEventListener('keydown', e => {
       if (e.key==='ArrowRight') switchFreq((S.freq+1)%5);
       if (e.key==='ArrowLeft')  switchFreq((S.freq+4)%5);
     });
 
     canvas.addEventListener('click', e => {
-      const dW=370, dH=72, dX=S.cx-dW/2, dY=S.H-dH-14;
-      if (e.clientY>dY && e.clientY<dY+dH) {
-        const clicked = Math.floor((e.clientX-dX)/(dW/5));
-        if (clicked>=0 && clicked<5 && clicked!==S.freq) switchFreq(clicked);
+      const hitR = 28;
+      for (let i=S.nodes.length-1; i>=0; i--) {
+        const {x,y} = nodeXY(S.nodes[i]);
+        const dx=e.clientX-x, dy=e.clientY-y;
+        if (dx*dx+dy*dy < hitR*hitR) { showActions(i); return; }
       }
+      S.selected = null; hideActions();
     });
 
     function switchFreq(next) {
       S.freq=next; S.transition=20;
-      S.nodes=[]; S.particles=[]; S.rings=[];
+      S.nodes=[]; S.particles=[]; S.rings=[]; S.selected=null; hideActions();
       if (_dnsTimer) { clearInterval(_dnsTimer); _dnsTimer=null; }
+      renderDial();
       loadRealm(next);
     }
 
-    // ── Realm Router ───────────────────────────────────────
+    async function probeWorker() {
+      try {
+        const r = await Promise.race([
+          fetch(WORKER_URL + '/', { cache: 'no-store' }),
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout'), 2500))
+        ]);
+        S.workerOk = r.ok;
+      } catch(e) { S.workerOk = false; }
+      addLog(S.workerOk ? 'WORKER LINK UP' : 'WORKER UNREACHABLE — FALLBACK', S.workerOk?'#00FF88':'#FFAA00');
+      renderTele();
+    }
+
+    async function fetchGeo(ip) {
+      const q = ip ? ('?ip=' + encodeURIComponent(ip)) : '';
+      try {
+        const r = await Promise.race([
+          fetch(WORKER_URL + '/api/geo' + q),
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout'), 2500))
+        ]);
+        if (r.ok) { const d = await r.json(); if (d.status==='success' || d.city) return d; }
+      } catch(e) {}
+      try {
+        const r = await fetch('https://ipwho.is/');
+        const d = await r.json();
+        if (d.success !== false) {
+          return {
+            status:'success', query:d.ip, city:d.city, country:d.country,
+            countryCode:d.country_code, regionName:d.region,
+            isp: (d.connection&&d.connection.isp)||'', as: (d.connection&&d.connection.asn)?('AS'+d.connection.asn):'',
+            lat:d.latitude, lon:d.longitude, timezone:d.timezone&&d.timezone.id,
+          };
+        }
+      } catch(e) {}
+      return { status:'fail', query:'?.?.?.?', city:'Unknown', country:'Unknown', countryCode:'UN', isp:'Unknown', as:'AS???', lat:0, lon:0, timezone:'' };
+    }
+
+    async function fetchBatchGeo(ips) {
+      try {
+        const r = await Promise.race([
+          fetch(WORKER_URL + '/api/geo/batch', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(ips),
+          }),
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout'), 2500))
+        ]);
+        if (r.ok) return await r.json();
+      } catch(e) {}
+      try {
+        const r = await fetch('https://ip-api.com/batch', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(ips.map(q => ({query:q, fields:'status,country,countryCode,city,isp,query'}))),
+        });
+        return await r.json();
+      } catch(e) { return []; }
+    }
+
+    async function fetchDoh(domain) {
+      try {
+        const r = await Promise.race([
+          fetch(WORKER_URL + '/api/doh?name=' + encodeURIComponent(domain)),
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout'), 2000))
+        ]);
+        if (r.ok) return await r.json();
+      } catch(e) {}
+      const r = await fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`, { headers:{'Accept':'application/dns-json'} });
+      return await r.json();
+    }
+
     async function loadRealm(f) {
       S.nodes=[]; S.particles=[]; S.meteors=[];
       if (f===0) await loadCarrier();
@@ -526,65 +681,55 @@
     }
 
     function countryFlag(code) {
-      if (!code||code.length!==2) return '🌐';
+      if (!code||code.length!==2) return 'WEB';
       return String.fromCodePoint(...[...code.toUpperCase()].map(c=>0x1F1E0+c.charCodeAt(0)-65));
     }
 
-    // ── CARRIER ────────────────────────────────────────────
     async function loadCarrier() {
-      let geo = S.data.carrier;
-      if (!geo) {
-        try {
-          const r = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,regionName,city,isp,as,query,lat,lon,timezone');
-          geo = await r.json(); S.data.carrier = geo;
-        } catch(e) { geo={query:'?.?.?.?',city:'Unknown',country:'Unknown',isp:'Unknown',as:'AS???'}; }
-      }
+      const geo = S.data.carrier || await fetchGeo();
+      S.data.carrier = geo;
       const flag = countryFlag(geo.countryCode||'UN');
       const c = DC.freq[0];
       spawnNodes([
-        {label:geo.query, sublabel:`${flag} ${geo.city}, ${geo.country}`, color:c, size:14, speed:0.0015},
+        {label:geo.query||'?', sublabel: flag + ' ' + (geo.city||'?') + ', ' + (geo.country||'?'), color:c, size:14, speed:0.0015},
         {label:'YOUR NODE', sublabel:'origin', color:'#00FF88', size:10, speed:0, _distance:0},
         {label:geo.isp||'?', sublabel:'ISP', color:c, size:8, speed:0.002},
-        {label:(geo.as||'').split(' ')[0], sublabel:'ASN', color:'#CC44FF', size:7, speed:0.003},
+        {label:(geo.as||'').split(' ')[0]||'ASN', sublabel:'ASN', color:'#CC44FF', size:7, speed:0.003},
         {label:geo.timezone||'', sublabel:'TZ', color:DC.muted, size:5, speed:-0.001},
-        {label:`${geo.lat?.toFixed(1)},${geo.lon?.toFixed(1)}`, sublabel:'GEO', color:'#2A3A4A', size:5, speed:0.002},
+        {label: (geo.lat!=null ? Number(geo.lat).toFixed(1) : '?') + ',' + (geo.lon!=null ? Number(geo.lon).toFixed(1) : '?'), sublabel:'GEO', color:'#2A3A4A', size:5, speed:0.002},
       ]);
     }
 
-    // ── TOPOLOGY ───────────────────────────────────────────
     async function loadTopology() {
       let connections = [];
       try {
         const r = await Promise.race([
           fetch('http://localhost:5001/api/connections'),
-          new Promise((_,rej)=>setTimeout(rej,1500,'timeout'))
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout'), 800))
         ]);
         if (r.ok) { const d=await r.json(); connections=(d.connections||d||[]).slice(0,12); }
       } catch(e) {}
       if (!connections.length) {
         connections = [
-          {dst_ip:'8.8.8.8',   dst_host:'dns.google',     bytes:1240, proto:'UDP'},
-          {dst_ip:'1.1.1.1',   dst_host:'cloudflare.com', bytes:3200, proto:'TCP'},
-          {dst_ip:'17.57.144.1',dst_host:'apple.com',     bytes:8800, proto:'TCP'},
-          {dst_ip:'151.101.1.67',dst_host:'reddit.com',   bytes:4200, proto:'TCP'},
-          {dst_ip:'52.20.1.44', dst_host:'aws.com',       bytes:12000,proto:'TCP'},
-          {dst_ip:'104.21.14.1',dst_host:'cf-cdn',        bytes:6700, proto:'TCP'},
+          {dst_ip:'8.8.8.8',    dst_host:'dns.google',     bytes:1240, proto:'UDP'},
+          {dst_ip:'1.1.1.1',    dst_host:'cloudflare.com', bytes:3200, proto:'TCP'},
+          {dst_ip:'17.57.144.1',dst_host:'apple.com',      bytes:8800, proto:'TCP'},
+          {dst_ip:'151.101.1.67',dst_host:'reddit.com',    bytes:4200, proto:'TCP'},
+          {dst_ip:'52.20.1.44', dst_host:'aws.com',        bytes:12000,proto:'TCP'},
+          {dst_ip:'104.21.14.1',dst_host:'cf-cdn',         bytes:6700, proto:'TCP'},
         ];
       }
       const ips = connections.map(c=>c.dst_ip||c.ip).filter(Boolean).slice(0,10);
-      let geoMap = {};
-      try {
-        const r = await fetch('https://ip-api.com/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ips.map(q=>({query:q,fields:'status,country,countryCode,city,isp,query'})))});
-        const geos = await r.json();
-        geos.forEach(g=>{if(g.status==='success')geoMap[g.query]=g;});
-      } catch(e) {}
+      const geos = await fetchBatchGeo(ips);
+      const geoMap = {};
+      (Array.isArray(geos)?geos:[]).forEach(g => { if (g && g.query) geoMap[g.query]=g; });
       spawnNodes(connections.map((c,i)=>{
         const ip=c.dst_ip||c.ip||'?';
         const geo=geoMap[ip]||{};
         const label=c.dst_host||ip;
         return {
           label: label.length>18?label.slice(0,18)+'…':label,
-          sublabel: geo.city ? `${countryFlag(geo.countryCode)} ${geo.city}` : (c.proto||''),
+          sublabel: geo.city ? (countryFlag(geo.countryCode) + ' ' + geo.city) : (c.proto||''),
           color: DC.freq[1],
           size: 5+Math.min(12, Math.log2((c.bytes||1000)/100)),
           speed: 0.002+i*0.0003,
@@ -592,7 +737,6 @@
       }));
     }
 
-    // ── STREAM ─────────────────────────────────────────────
     async function loadStream() {
       if (_dnsTimer) clearInterval(_dnsTimer);
       S.meteors=[]; spawnNodes([]);
@@ -603,18 +747,16 @@
       if (S.freq!==2) { clearInterval(_dnsTimer); return; }
       const domain = DNS_DOMAINS[_dnsIdx++ % DNS_DOMAINS.length];
       try {
-        const r = await fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`,{headers:{'Accept':'application/dns-json'}});
-        const d = await r.json();
+        const d = await fetchDoh(domain);
         const answers = d.Answer||[];
-        spawnMeteor(domain, answers.find(a=>a.type===1)?.data||'?', answers[0]?.TTL||0);
-      } catch(e) { spawnMeteor(domain,'NXDOMAIN',0); }
+        spawnMeteor(domain, answers.find(a=>a.type===1)?.data||'NXDOMAIN');
+      } catch(e) { spawnMeteor(domain,'NXDOMAIN'); }
     }
 
-    // ── BLUETOOTH ──────────────────────────────────────────
     async function loadBluetooth() {
       let devices=[];
       try {
-        const r=await Promise.race([fetch('http://localhost:5050/api/devices'),new Promise((_,rej)=>setTimeout(rej,1500,'to'))]);
+        const r=await Promise.race([fetch('http://localhost:5050/api/devices'),new Promise((_,rej)=>setTimeout(()=>rej(),800))]);
         if(r.ok){const d=await r.json();devices=(d.devices||d||[]).slice(0,10);}
       } catch(e) {}
       if (!devices.length) {
@@ -628,22 +770,19 @@
         const rssi=d.rssi||-70;
         const dist=80+(Math.abs(rssi)-30)*(180/60);
         const str=Math.max(0,Math.min(1,(rssi+30)/-60));
-        return {label:d.name||'Unknown',sublabel:`${rssi} dBm`,color:DC.freq[3],size:4+(1-str)*8,speed:0.003+i*0.0002,_distance:dist};
+        return {label:d.name||'Unknown',sublabel: rssi + ' dBm',color:DC.freq[3],size:4+(1-str)*8,speed:0.003+i*0.0002,_distance:dist};
       });
       spawnNodes(nodes);
       nodes.forEach((n,i)=>{if(S.nodes[i])S.nodes[i].distance=n._distance;});
     }
 
-    // ── THREAT ─────────────────────────────────────────────
-    const WORKER_URL = 'https://sigspace.andres-491.workers.dev';
-
     async function loadThreat() {
       const seedIPs=['185.220.101.50','194.165.16.11','45.142.212.100','91.108.56.196','140.82.112.4','8.8.8.8'];
       const nodes=[];
-      for (const ip of seedIPs.slice(0,8)) {
+      for (const ip of seedIPs) {
         let score=0, country='';
         try {
-          const r=await Promise.race([fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),new Promise((_,rej)=>setTimeout(rej,2000,'to'))]);
+          const r=await Promise.race([fetch(`${WORKER_URL}/api/abuseipdb?ip=${ip}`),new Promise((_,rej)=>setTimeout(()=>rej(),2000))]);
           if(r.ok){const d=await r.json();score=d.abuseConfidenceScore||0;country=d.countryCode||'';}
         } catch(e) {
           score=['185.220','194.165','45.142'].some(p=>ip.startsWith(p))?75:5;
@@ -651,7 +790,7 @@
         const bad=score>25;
         nodes.push({
           label:ip,
-          sublabel:`${countryFlag(country)} ${bad?'⚠ THREAT':'✓ clean'} ${score}%`,
+          sublabel:`${countryFlag(country)} ${bad?'THREAT':'clean'} ${score}%`,
           color:bad?DC.freq[4]:'#00D4FF',
           size:bad?9+score/20:6,
           speed:bad?-0.006:0.003,
@@ -660,10 +799,12 @@
       spawnNodes(nodes);
     }
 
-    // ── Boot ───────────────────────────────────────────────
-    document.fonts.ready.then(() => {
+    document.fonts.ready.then(async () => {
+      renderDial();
       loop();
-      loadRealm(0);
+      await probeWorker();
+      await loadRealm(0);
+      setTimeout(() => { S.boot = 0; bootEl.style.opacity = '0'; setTimeout(()=>bootEl.remove(), 800); }, 1500);
     });
   </script>
 </body>
