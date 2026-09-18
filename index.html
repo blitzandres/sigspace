@@ -126,7 +126,7 @@
         <button type="submit">SEND</button>
       </form>
     </div>
-    <div id="hint">← → TUNE &nbsp;·&nbsp; CLICK A NODE</div>
+    <div id="hint">← → TUNE &nbsp;·&nbsp; CLICK A NODE &nbsp;·&nbsp; DEVICE → POWER OFF</div>
   </div>
   <script>
 
@@ -153,18 +153,20 @@
       bg: '#07070c',
       muted: '#3A4A5A',
       fg: '#D0E0F0',
-      freq: ['#00D4FF','#00FF88','#FFAA00','#CC44FF','#FF3366'],
-      names: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT'],
+      freq: ['#00D4FF','#00FF88','#FFAA00','#CC44FF','#FF3366','#66FFCC'],
+      names: ['CARRIER','TOPOLOGY','STREAM','BLUETOOTH','THREAT','DEVICE'],
     };
     const WORKER_URL = 'https://sigspace.andres-491.workers.dev';
     const ACTIONS = [
       { id:'pin',     label:'PIN',     color:'#00D4FF' },
       { id:'channel', label:'CHANNEL', color:'#00FF88' },
+      { id:'power',   label:'POWER OFF', color:'#FFAA00' },
       { id:'block',   label:'BLOCK',   color:'#FF3366' },
       { id:'toggle',  label:'TOGGLE',  color:'#00FF88' },
       { id:'request', label:'REQUEST', color:'#00D4FF' },
       { id:'close',   label:'CLOSE',   color:'#FFAA00' },
     ];
+    const DEVICE_REACH = 'http://127.0.0.1:5070';
 
     const S = {
       W:0, H:0, cx:0, cy:0, freq:0,
@@ -279,6 +281,9 @@
         blocked: S.blocked.has(d.label) || S.blocked.has(d.ip) || !!d.blocked,
         threatScore: d.threatScore || 0,
         ip: d.ip || '',
+        deviceId: d.deviceId || '',
+        canPowerOff: !!d.canPowerOff,
+        driver: d.driver || '',
       }));
       S.nodes.forEach(n => { if (n.blocked) { n.active = false; n.color = '#FF3366'; } });
       addLog('FIELD LOCK  ' + DC.names[S.freq], DC.freq[S.freq]);
@@ -387,6 +392,7 @@
       selEl.classList.add('show');
       const acts = ACTIONS.filter(a => {
         if (a.id === 'channel' && isSuspicious(node)) return false;
+        if (a.id === 'power' && (isSuspicious(node) || !node.canPowerOff || !node.deviceId)) return false;
         return true;
       });
       actionsEl.innerHTML = acts.map(a =>
@@ -410,6 +416,9 @@
           break;
         case 'channel':
           openChannel(nodeIdx);
+          break;
+        case 'power':
+          powerOffNode(nodeIdx);
           break;
         case 'block':
           blockNode(nodeIdx, 'manual');
@@ -654,8 +663,8 @@
     }
 
     window.addEventListener('keydown', e => {
-      if (e.key==='ArrowRight') switchFreq((S.freq+1)%5);
-      if (e.key==='ArrowLeft')  switchFreq((S.freq+4)%5);
+      if (e.key==='ArrowRight') switchFreq((S.freq+1)%6);
+      if (e.key==='ArrowLeft')  switchFreq((S.freq+5)%6);
     });
 
     canvas.addEventListener('click', e => {
@@ -751,11 +760,84 @@
       else if (f===2) await loadStream();
       else if (f===3) await loadBluetooth();
       else if (f===4) await loadThreat();
+      else if (f===5) await loadDevices();
     }
 
     function countryFlag(code) {
       if (!code||code.length!==2) return 'WEB';
       return String.fromCodePoint(...[...code.toUpperCase()].map(c=>0x1F1E0+c.charCodeAt(0)-65));
+    }
+
+
+    async function powerOffNode(idx) {
+      const node = S.nodes[idx];
+      if (!node) return;
+      if (isSuspicious(node) || !node.canPowerOff || !node.deviceId) {
+        addLog('POWER DENIED  ' + (node ? node.label : '?'), '#FF3366');
+        if (node && isSuspicious(node)) blockNode(idx, 'suspicion');
+        return;
+      }
+      addLog('POWER OFF → ' + node.label, '#FFAA00');
+      node.flash = 28; node.flashCol = '#FFAA00'; node.msgBeam = 45;
+      try {
+        const r = await Promise.race([
+          fetch(DEVICE_REACH + '/api/poweroff', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: node.deviceId }),
+          }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+        ]);
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          addLog('POWERED DOWN  ' + node.label + (d.driver ? '  ·  ' + d.driver : ''), '#00FF88');
+          node.active = false;
+          node.sublabel = (node.sublabel || '') + '  ·  OFF';
+        } else {
+          addLog('POWER FAIL  ' + (d.error || d.note || node.label), '#FF3366');
+        }
+      } catch (e) {
+        addLog('POWER FAIL  device-reach offline', '#FF3366');
+      }
+    }
+
+    async function loadDevices() {
+      let devices = [];
+      try {
+        const r = await Promise.race([
+          fetch(DEVICE_REACH + '/api/devices'),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500)),
+        ]);
+        if (r.ok) {
+          const d = await r.json();
+          devices = (d.devices || []).slice(0, 14);
+        }
+      } catch (e) {}
+      if (!devices.length) {
+        devices = [
+          { id: 'sim:living-room-tv', name: 'Living Room TV (sim)', kind: 'tv', driver: 'simulated', can_power_off: true },
+          { id: 'sim:samsung', name: 'Samsung TV (sim)', kind: 'tv', driver: 'simulated', can_power_off: true },
+          { id: 'sim:soundbar', name: 'Soundbar (sim)', kind: 'media', driver: 'simulated', can_power_off: true },
+        ];
+      }
+      const c = DC.freq[5];
+      spawnNodes(devices.map((d, i) => {
+        const label = d.name || d.id || 'device';
+        const driver = d.driver || '?';
+        const can = d.can_power_off !== false;
+        return {
+          label: label.length > 20 ? label.slice(0, 20) + '…' : label,
+          sublabel: (d.kind || 'device') + '  ·  ' + driver + (can ? '' : '  ·  NO PWR'),
+          color: driver === 'samsung' ? '#00D4FF' : c,
+          size: d.kind === 'tv' ? 11 : 7,
+          speed: 0.002 + i * 0.00025,
+          deviceId: d.id,
+          canPowerOff: can,
+          driver,
+          ip: d.host || '',
+        };
+      }));
+      addLog('DEVICE FIELD  ' + devices.length + ' in reach', c);
     }
 
     async function loadCarrier() {

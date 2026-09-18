@@ -50,3 +50,21 @@ Secrets stay out of git:
 - STREAM — DNS meteors via Cloudflare DoH
 - BLUETOOTH — BLE nodes from bluth-scan, or a simulated RSSI field
 - THREAT — AbuseIPDB via the Worker
+
+## Device reach (TV / local power-off)
+
+Local companion that discovers TVs and media devices on your LAN and powers them off from the DEVICE realm.
+
+```bash
+cd device-reach
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+Then open the idle preview and tune to **DEVICE**. Click a node → **POWER OFF**.
+
+- API: `http://127.0.0.1:5070/`
+- Samsung is prioritized (accept the Allow prompt on the TV the first time)
+- Also: Roku, LG webOS, UPnP MediaRenderer, plus simulated demos when nothing is found
+- Idle exit after 1 hour with no requests (`IDLE_SECONDS`)
