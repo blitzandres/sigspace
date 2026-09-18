@@ -115,7 +115,8 @@ def idle_watch():
 
 
 if __name__ == "__main__":
-    print(f"device-reach on http://{HOST}:{PORT}/  idle={IDLE_SECONDS}s")
+    import sys
+    print(f"device-reach on http://{HOST}:{PORT}/  idle={IDLE_SECONDS}s", flush=True)
     threading.Thread(target=idle_watch, daemon=True).start()
-    scan(force=True)
+    threading.Thread(target=lambda: scan(force=True), daemon=True).start()
     app.run(host=HOST, port=PORT, threaded=True)

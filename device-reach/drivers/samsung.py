@@ -155,7 +155,7 @@ class SamsungDriver(Driver):
 
     def _alive(self, host: str) -> bool:
         try:
-            r = requests.get(f"http://{host}:8001/api/v2/", timeout=0.6)
+            r = requests.get(f"http://{host}:8001/api/v2/", timeout=0.25)
             return r.status_code < 500
         except Exception:
             return False
@@ -173,7 +173,7 @@ class SamsungDriver(Driver):
                     hosts.append(f"{prefix}.{i}")
         except Exception:
             pass
-        return hosts[:40]
+        return hosts[:12]
 
     def _ssdp_locations(self, payload: str, timeout: float = 2.0) -> list[str]:
         locs: set[str] = set()
