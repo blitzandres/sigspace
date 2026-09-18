@@ -34,6 +34,21 @@ def scan(force: bool = False):
     with _lock:
         if not force and _devices and now - _last_scan < 20:
             return [d.to_dict() for d in _devices.values()]
+    found = []
+    for drv in DRIVERS:
+        if drv.name == "simulated":
+            continue
+        try:
+            found.extend(drv.discover())
+        except Exception:
+            continue
+    if not found and ALLOW_SIM:
+        found.extend(_driver_map["simulated"].discover())
+    with _lock:
+        _devices = {d.id: d for d in found}
+        _last_scan = now
+        return [d.to_dict() for d in _devices.values()]
+
         found = []
         for drv in DRIVERS:
             if drv.name == "simulated":
@@ -88,9 +103,12 @@ def poweroff():
     device_id = body.get("id") or body.get("device_id")
     if not device_id:
         return jsonify({"ok": False, "error": "id required"}), 400
-    scan(force=False)
     with _lock:
         device = _devices.get(device_id)
+    if not device:
+        scan(force=False)
+        with _lock:
+            device = _devices.get(device_id)
     if not device:
         return jsonify({"ok": False, "error": "device not found / not in reach"}), 404
     if not getattr(device, "in_reach", True):
