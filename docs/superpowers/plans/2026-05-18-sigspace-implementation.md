@@ -41,7 +41,7 @@
 - [ ] **Step 1.1: Create GitHub repo via CLI**
 
 ```bash
-cd /Users/andresblitz/Documents/sigspace
+cd path/to/sigspace
 gh repo create blitzandres/sigspace --public --description "SIGSPACE — real signal data as a video game world" --source . --remote origin --push
 ```
 
@@ -1250,7 +1250,7 @@ function corsResponse(body, status, origin, contentType = 'text/plain') {
 - [ ] **Step 11.2: Deploy the Worker via wrangler CLI**
 
 ```bash
-cd /Users/andresblitz/Documents/sigspace/worker
+cd path/to/sigspace/worker
 npm install wrangler --save-dev
 npx wrangler login
 npx wrangler deploy
@@ -1284,7 +1284,7 @@ curl "https://sigspace.blitzandres.workers.dev/api/abuseipdb?ip=8.8.8.8"
 - [ ] **Step 11.5: Commit Worker**
 
 ```bash
-cd /Users/andresblitz/Documents/sigspace
+cd path/to/sigspace
 git add worker/
 git commit -m "feat: Cloudflare Worker — CORS proxy for ipinfo.io + AbuseIPDB, keys in env"
 git push origin main
