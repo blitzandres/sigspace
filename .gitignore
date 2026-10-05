@@ -4,3 +4,8 @@ node_modules/
 __pycache__/
 *.pyc
 .DS_Store
+worker/.wrangler/
+
+# device-reach local
+device-reach/.venv/
+device-reach/**/__pycache__/

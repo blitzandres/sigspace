@@ -1,62 +1,107 @@
-const ALLOWED_ORIGIN = 'https://blitzandres.github.io';
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Cache-Control': 'public, max-age=30',
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
+  });
+}
+
+function visitorIp(request) {
+  return (
+    request.headers.get('CF-Connecting-IP') ||
+    request.headers.get('True-Client-IP') ||
+    ''
+  );
+}
+
+const GEO_FIELDS = 'status,message,country,countryCode,regionName,city,isp,as,query,lat,lon,timezone';
 
 export default {
   async fetch(request, env) {
-    const origin = request.headers.get('Origin') || '';
     const url = new URL(request.url);
-
-    // CORS preflight
     if (request.method === 'OPTIONS') {
-      return corsResponse('', 204, origin);
+      return new Response('', { status: 204, headers: CORS });
     }
 
-    // Route: /api/ipinfo?ip=1.2.3.4
-    if (url.pathname === '/api/ipinfo') {
-      const ip = url.searchParams.get('ip') || '';
-      if (!ip.match(/^[\d.a-f:]+$/i)) return corsResponse('bad ip', 400, origin);
+    if (url.pathname === '/') {
+      return json({ status: 'ok', service: 'sigspace-worker', t: Date.now() });
+    }
+
+    if (url.pathname === '/api/ipinfo' || url.pathname === '/api/geo') {
+      const ip = url.searchParams.get('ip') || visitorIp(request);
       try {
-        const r = await fetch(`https://ipinfo.io/${ip}?token=${env.IPINFO_TOKEN}`);
-        const data = await r.text();
-        return corsResponse(data, r.status, origin, 'application/json');
-      } catch(e) {
-        return corsResponse(JSON.stringify({error:'upstream failed'}), 502, origin);
+        const target = ip
+          ? `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${GEO_FIELDS}`
+          : `http://ip-api.com/json/?fields=${GEO_FIELDS}`;
+        const r = await fetch(target);
+        const data = await r.json();
+        if (data.status === 'success') return json(data);
+        if (ip && env.IPINFO_TOKEN) {
+          const r2 = await fetch(`https://ipinfo.io/${ip}?token=${env.IPINFO_TOKEN}`);
+          return json(await r2.json(), r2.status);
+        }
+        return json(data, 502);
+      } catch (e) {
+        return json({ error: 'upstream failed' }, 502);
       }
     }
 
-    // Route: /api/abuseipdb?ip=1.2.3.4
+    if (url.pathname === '/api/geo/batch' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const list = (Array.isArray(body) ? body : body.ips || [])
+          .filter(Boolean)
+          .slice(0, 10);
+        const payload = list.map((q) => ({
+          query: q,
+          fields: 'status,country,countryCode,city,isp,query',
+        }));
+        const r = await fetch('http://ip-api.com/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        return json(await r.json());
+      } catch (e) {
+        return json({ error: 'upstream failed' }, 502);
+      }
+    }
+
+    if (url.pathname === '/api/doh') {
+      const name = (url.searchParams.get('name') || '').toLowerCase();
+      if (!/^[a-z0-9.-]{1,253}$/.test(name)) return json({ error: 'bad name' }, 400);
+      try {
+        const r = await fetch(
+          `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=A`,
+          { headers: { Accept: 'application/dns-json' } }
+        );
+        return json(await r.json());
+      } catch (e) {
+        return json({ error: 'upstream failed' }, 502);
+      }
+    }
+
     if (url.pathname === '/api/abuseipdb') {
       const ip = url.searchParams.get('ip') || '';
-      if (!ip.match(/^[\d.a-f:]+$/i)) return corsResponse('bad ip', 400, origin);
+      if (!/^[\d.a-f:]+$/i.test(ip)) return json({ error: 'bad ip' }, 400);
       try {
         const r = await fetch(
           `https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90`,
-          { headers: { 'Key': env.ABUSEIPDB_KEY, 'Accept': 'application/json' } }
+          { headers: { Key: env.ABUSEIPDB_KEY, Accept: 'application/json' } }
         );
         const d = await r.json();
-        return corsResponse(JSON.stringify(d.data || {}), r.status, origin, 'application/json');
-      } catch(e) {
-        return corsResponse(JSON.stringify({error:'upstream failed'}), 502, origin);
+        return json(d.data || {}, r.status);
+      } catch (e) {
+        return json({ error: 'upstream failed' }, 502);
       }
     }
 
-    // Health check
-    if (url.pathname === '/') {
-      return corsResponse(JSON.stringify({status:'ok',service:'sigspace-worker'}), 200, origin, 'application/json');
-    }
-
-    return corsResponse('not found', 404, origin);
-  }
+    return json({ error: 'not found' }, 404);
+  },
 };
-
-function corsResponse(body, status, origin, contentType = 'text/plain') {
-  return new Response(body, {
-    status,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=300'
-    }
-  });
-}
