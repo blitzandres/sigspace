@@ -50,21 +50,39 @@ Secrets stay out of git:
 - STREAM — DNS meteors via Cloudflare DoH
 - BLUETOOTH — BLE nodes from bluth-scan, or a simulated RSSI field
 - THREAT — AbuseIPDB via the Worker
+- DEVICE — TVs and controllable nodes in reach (control panel), safe preview by default
 
-## Device reach (TV / local power-off)
+## Device reach (control panel)
 
-Local companion that discovers TVs and media devices on your LAN and powers them off from the DEVICE realm.
+A local companion (`device-reach/`) that discovers controllable devices on **your own
+LAN** and lets you **play, pause, stop, change volume, mute, launch apps, power off / on,
+and send a payload** to each one — from the SIGSPACE **DEVICE** realm or the dedicated
+Control Panel.
+
+**Safe by default / cyber note.** This is the one piece that can reach real hardware.
+It is **never** served or active on the public website, binds to `127.0.0.1` only, and
+starts **DISARMED** — it shows only a simulated field and refuses real actions until you
+explicitly arm it on your own machine. Run it only on a network you trust; disarm or
+quit when done. Full details and the API are in [`device-reach/README.md`](device-reach/README.md)
+and credits are in [`NOTICE-device-reach.md`](NOTICE-device-reach.md).
 
 ```bash
 cd device-reach
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python app.py
+.venv/bin/python app.py          # DISARMED on http://127.0.0.1:5070
+# then, on purpose:
+curl -X POST http://127.0.0.1:5070/api/arm -H 'Content-Type: application/json' -d '{"confirm":true}'
 ```
 
-Then open the idle preview and tune to **DEVICE**. Click a node → **POWER OFF**.
+In SIGSPACE, tune to **DEVICE**, flip **LIVE** (bottom-right), click a node, and use its
+buttons (▶ ⏸ ⏹ 🔊 ⏻ 📡). Drivers: samsung · roku · lg-webos · cast · upnp · http · wol ·
+ssdp · simulated. Custom http/WoL nodes go in `reach_nodes.json` (git-ignored).
 
-- API: `http://127.0.0.1:5070/`
-- Samsung is prioritized (accept the Allow prompt on the TV the first time)
-- Also: Roku, LG webOS, UPnP MediaRenderer, plus simulated demos when nothing is found
-- Idle exit after 1 hour with no requests (`IDLE_SECONDS`)
+### Website preview (mock, no live connections)
+
+`preview/device-reach.html` is a self-contained, nstarlive-style control panel that runs
+on **mock data only** — every button acts on simulated devices, nothing touches the
+network. This is what's safe to show on GitHub Pages / andresblitz.com. Open it from the
+DEVICE realm ("OPEN CONTROL PANEL") or directly:
+<https://blitzandres.github.io/sigspace/preview/device-reach.html>.

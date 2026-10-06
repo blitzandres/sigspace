@@ -1,0 +1,32 @@
+{
+  "_comment": "Copy to reach_nodes.json and edit. These are the ONLY custom hosts device-reach will ever touch. Nothing here is discovered automatically.",
+  "http_nodes": [
+    {
+      "id": "desk-lamp",
+      "name": "Desk Lamp (WLED)",
+      "kind": "node",
+      "host": "192.168.1.50",
+      "port": 80,
+      "actions": {
+        "power_on":  { "method": "POST", "path": "/win&T=1" },
+        "power_off": { "method": "POST", "path": "/win&T=0" },
+        "send":      { "method": "POST", "path": "/json/state", "body_from_payload": true }
+      }
+    },
+    {
+      "id": "home-bridge",
+      "name": "Home Bridge Webhook",
+      "kind": "node",
+      "host": "192.168.1.20",
+      "port": 8123,
+      "actions": {
+        "play": { "method": "POST", "url": "http://192.168.1.20:8123/api/webhook/play" },
+        "stop": { "method": "POST", "url": "http://192.168.1.20:8123/api/webhook/stop" },
+        "send": { "method": "POST", "url": "http://192.168.1.20:8123/api/webhook/msg", "body_from_payload": true }
+      }
+    }
+  ],
+  "wol_nodes": [
+    { "id": "lab-pc", "name": "Lab PC", "mac": "AA:BB:CC:DD:EE:FF", "broadcast": "255.255.255.255", "port": 9 }
+  ]
+}

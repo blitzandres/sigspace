@@ -1,3 +1,11 @@
+# Core (required)
 flask>=3.0
 requests>=2.31
-websocket-client>=1.8
+websocket-client>=1.7     # Samsung Tizen websocket remote
+
+# Passive discovery (recommended — the "reach" brain)
+bleak>=0.22               # BLE scan: AirTags/tags, phones, beacons, headphones, watches
+zeroconf>=0.132           # mDNS/Bonjour: AirPlay, Cast, HomeKit, printers, continuity
+
+# Optional
+# pychromecast>=14         # Google Cast control (play/stop/volume) — discovery also via mDNS

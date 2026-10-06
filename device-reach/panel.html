@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGSPACE · Device Reach — Live Control Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070b12;--panel:#0c1220;--panel2:#0e1526;--stroke:rgba(140,170,210,.14);--stroke2:rgba(0,212,255,.34);
+--text:#dbe6f2;--muted:#8498ad;--dim:#56687d;--cyan:#00d4ff;--green:#00e59a;--amber:#ffb020;--mag:#c35bff;--rose:#ff4d7a;
+--mono:"IBM Plex Mono",monospace;--ui:"IBM Plex Sans","Segoe UI",sans-serif;--disp:"Space Grotesk",sans-serif;--radius:12px;}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{min-height:100%;background:radial-gradient(1200px 700px at 80% -10%,rgba(0,212,255,.08),transparent 60%),radial-gradient(900px 600px at 0% 110%,rgba(195,91,255,.07),transparent 55%),var(--bg);color:var(--text);font-family:var(--ui);-webkit-font-smoothing:antialiased}
+a{color:var(--cyan);text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 12px rgba(0,229,154,.8);animation:p 2.4s ease-in-out infinite}
+@keyframes p{50%{opacity:.4}}
+.brand .mark{font-family:var(--disp);font-weight:700;letter-spacing:.2em;font-size:15px}
+.brand .sub{font-size:10px;letter-spacing:.16em;color:var(--muted);border-left:1px solid var(--stroke);padding-left:12px}
+.banner{margin:16px 0 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 14px;border-radius:10px}
+.banner.dis{border:1px solid rgba(0,229,154,.4);background:linear-gradient(90deg,rgba(0,229,154,.08),transparent)}
+.banner.arm{border:1px solid rgba(255,77,122,.45);background:linear-gradient(90deg,rgba(255,77,122,.1),transparent)}
+.banner .pill{font-family:var(--disp);font-size:10px;letter-spacing:.14em;color:#0a0f1a;padding:4px 9px;border-radius:999px;font-weight:700}
+.banner.dis .pill{background:var(--green)} .banner.arm .pill{background:var(--rose);color:#fff}
+.banner span{font-size:12.5px;color:var(--muted)} .banner b{color:var(--text)}
+.hero{margin:6px 0 10px}
+.hero h1{font-family:var(--disp);font-weight:700;font-size:clamp(22px,4vw,32px);letter-spacing:-.01em;line-height:1.1}
+.hero h1 em{font-style:normal;color:var(--cyan)}
+.hero p{margin-top:8px;color:var(--muted);max-width:760px;font-size:13.5px;line-height:1.6}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+.stat{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--stroke);border-radius:12px;padding:13px 14px}
+.stat .n{font-family:var(--disp);font-weight:700;font-size:22px} .stat .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);margin-top:3px;text-transform:uppercase}
+.stat.c .n{color:var(--cyan)} .stat.g .n{color:var(--green)} .stat.a .n{color:var(--amber)} .stat.m .n{color:var(--mag)}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:14px;align-items:start}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--stroke);border-radius:var(--radius);position:relative;overflow:hidden}
+.card .hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--stroke)}
+.card .hd .t{font-family:var(--disp);font-size:11px;letter-spacing:.14em;color:var(--muted)} .card .hd .c{font-family:var(--mono);font-size:10px;color:var(--dim)}
+.search{padding:10px 12px;border-bottom:1px solid var(--stroke)}
+.search input{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--stroke);color:var(--text);font:12px var(--mono);padding:9px 11px;border-radius:9px;outline:none}
+.search input:focus{border-color:var(--stroke2)}
+.roster{display:flex;flex-direction:column;max-height:620px;overflow:auto}
+.grp{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;padding:9px 14px 5px;display:flex;justify-content:space-between;background:rgba(0,0,0,.14);position:sticky;top:0}
+.row{display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid rgba(140,170,210,.06);cursor:pointer;transition:background .14s}
+.row:hover{background:rgba(0,212,255,.05)} .row.sel{background:rgba(0,212,255,.09);box-shadow:inset 2px 0 0 var(--cyan)}
+.row.obs{opacity:.92}
+.row .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;background:rgba(0,212,255,.08);border:1px solid var(--stroke);flex:none}
+.row .meta{flex:1;min-width:0} .row .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .sl{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.badge{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:1px 6px;border-radius:999px;border:1px solid var(--stroke);color:var(--muted);text-transform:uppercase}
+.badge.ctl{color:var(--cyan);border-color:var(--stroke2)} .badge.obs{color:var(--dim)}
+.sig{display:flex;align-items:flex-end;gap:2px;height:14px;flex:none}
+.sig i{width:3px;background:var(--dim);border-radius:1px}
+.sig i.on{background:var(--green)}
+.right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.seen{font-family:var(--mono);font-size:9px;color:var(--dim)}
+.st{width:9px;height:9px;border-radius:50%;flex:none}
+.on{background:var(--green);box-shadow:0 0 8px rgba(0,229,154,.7)} .off{background:var(--dim)} .play{background:var(--cyan);box-shadow:0 0 8px rgba(0,212,255,.7)} .obsdot{background:var(--mag);box-shadow:0 0 8px rgba(195,91,255,.5)}
+.ctl{padding:16px 16px 18px}
+.dev-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.dev-head .title{font-family:var(--disp);font-weight:700;font-size:20px}
+.dev-head .tags{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:8px;flex-wrap:wrap}
+.tag{border:1px solid var(--stroke);border-radius:999px;padding:2px 9px;color:var(--muted)}
+.pwrtag{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid var(--stroke)}
+.pwrtag.on{color:var(--green);border-color:rgba(0,229,154,.4);background:rgba(0,229,154,.08)} .pwrtag.off{color:var(--rose);border-color:rgba(255,77,122,.4);background:rgba(255,77,122,.07)} .pwrtag.obs{color:var(--mag);border-color:rgba(195,91,255,.4);background:rgba(195,91,255,.07)}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0 6px}
+.meter{background:rgba(0,0,0,.22);border:1px solid var(--stroke);border-radius:10px;padding:12px 13px}
+.meter .k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--dim);display:flex;justify-content:space-between}
+.meter .v{font-family:var(--disp);font-weight:700;font-size:18px;margin-top:4px}
+.bar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);margin-top:9px;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--cyan),var(--green));transition:width .3s}
+.bar.sg>i{background:linear-gradient(90deg,var(--amber),var(--green))}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;margin-top:14px;font-family:var(--mono);font-size:11.5px}
+.kv .k{color:var(--dim)} .kv .v{color:var(--text);word-break:break-all}
+.obsnote{margin-top:16px;padding:12px 14px;border:1px dashed rgba(195,91,255,.4);border-radius:10px;background:rgba(195,91,255,.05);color:var(--mag);font-size:12.5px}
+.sect{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--dim);margin:20px 0 9px;text-transform:uppercase}
+.btns{display:flex;flex-wrap:wrap;gap:9px}
+.btn{font-family:var(--disp);font-weight:600;font-size:12px;letter-spacing:.06em;display:inline-flex;align-items:center;gap:7px;padding:11px 15px;border-radius:10px;border:1px solid var(--stroke);background:rgba(255,255,255,.015);color:var(--text);cursor:pointer;transition:transform .12s,background .14s,border-color .14s,box-shadow .14s}
+.btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.06)} .btn .g{font-size:14px;line-height:1}
+.btn.pri{border-color:var(--stroke2);color:var(--cyan);background:rgba(0,212,255,.08)} .btn.pri:hover{box-shadow:0 0 0 1px rgba(0,212,255,.3),0 0 22px rgba(0,212,255,.18)}
+.btn.good{border-color:rgba(0,229,154,.4);color:var(--green);background:rgba(0,229,154,.07)}
+.btn.warn{border-color:rgba(255,176,32,.4);color:var(--amber);background:rgba(255,176,32,.06)}
+.btn.dang{border-color:rgba(255,77,122,.4);color:var(--rose);background:rgba(255,77,122,.06)}
+.btn.act{box-shadow:0 0 0 1px currentColor inset} .btn[disabled]{opacity:.32;cursor:not-allowed;transform:none;box-shadow:none}
+.send{display:flex;gap:9px;margin-top:10px}
+.send input{flex:1;background:rgba(0,0,0,.28);border:1px solid var(--stroke);color:var(--text);font:13px var(--mono);padding:11px 12px;border-radius:10px;outline:none} .send input:focus{border-color:var(--stroke2)}
+.armbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:20px;padding:12px 14px;border:1px dashed var(--stroke);border-radius:10px;background:rgba(0,0,0,.18)}
+.armbar .lt{font-size:12px;color:var(--muted);max-width:620px} .armbar .lt b{color:var(--text)}
+.log{margin-top:14px} .logbox{font-family:var(--mono);font-size:11.5px;line-height:1.7;max-height:160px;overflow:auto;padding:12px 14px}
+.logbox .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .logbox .time{color:var(--dim);margin-right:8px}
+.foot{margin-top:26px;color:var(--dim);font-size:11.5px;font-family:var(--mono);line-height:1.7}
+@media(max-width:860px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}.meters{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><span class="dot"></span><span class="mark">SIGSPACE</span><span class="sub">DEVICE REACH · LIVE CONTROL PANEL</span></div>
+    <span class="back" style="font-family:var(--mono);font-size:11px;color:var(--muted)">localhost · your computer</span>
+  </div>
+
+  <div id="banner" class="banner dis"><span class="pill">DISARMED</span><span><b>Safe mode.</b> Passive discovery is running (read-only). Real devices are only commanded after you arm the panel below.</span></div>
+
+  <div class="hero">
+    <h1>Everything in reach — <em>on every frequency your Mac can hear.</em></h1>
+    <p>Passive discovery across BLE, mDNS/Bonjour, SSDP/UPnP, Google Cast, the LAN and Wi-Fi — phones, AirTags, beacons, headphones, watches, TVs, cast boxes, printers and every network host. Observe-only devices just show up as reached; controllable ones get play / stop / power / send.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat c"><div class="n" id="s-dev">—</div><div class="k">Devices in reach</div></div>
+    <div class="stat g"><div class="n" id="s-ctl">—</div><div class="k">Controllable</div></div>
+    <div class="stat a"><div class="n" id="s-src">—</div><div class="k">Sources active</div></div>
+    <div class="stat m"><div class="n" id="s-act">—</div><div class="k">Action types</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="hd"><span class="t">DEVICES IN REACH</span><span class="c" id="roster-c"></span></div>
+      <div class="search"><input id="q" placeholder="Filter: name, vendor, kind, MAC/IP…" autocomplete="off"></div>
+      <div class="roster" id="roster"></div>
+    </div>
+    <div class="card"><div class="hd"><span class="t">CONTROL</span><span class="c" id="mode-c">live · localhost</span></div><div class="ctl" id="ctl"></div></div>
+  </div>
+
+  <div class="card log"><div class="hd"><span class="t">ACTIVITY LOG</span><span class="c" id="log-c">live</span></div><div class="logbox" id="logbox"></div></div>
+
+  <div class="foot">
+    sources: ble · mdns · ssdp · cast · upnp · lan · wifi · samsung · roku · lg-webos<br>
+    Safe by default — passive scan is read-only and always on; sending actions to real devices requires arming. Binds 127.0.0.1, idle-exits after 1h.
+  </div>
+</div>
+
+<script>
+const API='';
+const el=s=>document.getElementById(s);
+let DEVICES=[], selId=null, armed=false, query='', lastErr={};
+const GROUPS=['Media & TVs','Phones & Wearables','Tags & Beacons','Network hosts','Other'];
+const BTN=[
+ {cap:'play',g:'▶',label:'PLAY',cls:'pri'},{cap:'pause',g:'⏸',label:'PAUSE',cls:''},{cap:'stop',g:'⏹',label:'STOP',cls:'warn'},
+ {cap:'prev',g:'⏮',label:'PREV',cls:''},{cap:'next',g:'⏭',label:'NEXT',cls:''},
+ {cap:'volume_down',g:'🔉',label:'VOL −',cls:''},{cap:'volume_up',g:'🔊',label:'VOL +',cls:''},{cap:'mute',g:'🔇',label:'MUTE',cls:''},
+ {cap:'launch',g:'🚀',label:'LAUNCH',cls:''},{cap:'key',g:'⌨',label:'KEY',cls:''},
+ {cap:'power_on',g:'⏻',label:'POWER ON',cls:'good'},{cap:'power_off',g:'⏻',label:'POWER OFF',cls:'dang'},
+];
+function now(){return new Date().toTimeString().slice(0,8);}
+function log(msg,color){const b=el('logbox');const d=document.createElement('div');d.className='l';d.innerHTML=`<span class="time">${now()}</span><span style="color:${color||'var(--cyan)'}">${msg}</span>`;b.prepend(d);while(b.children.length>60)b.lastChild.remove();}
+function dev(){return DEVICES.find(d=>d.id===selId);}
+function icon(d){if(d.meta&&d.meta.icon)return d.meta.icon;const k=d.kind;return({tv:'📺',media:'🎬',speaker:'🔊',phone:'📱',wearable:'⌚',headphones:'🎧',tag:'🏷️',beacon:'📡',host:'🖥️',printer:'🖨️',node:'💡'})[k]||'📶';}
+function ago(ts){if(!ts)return'';const s=Math.max(0,Math.round(Date.now()/1000-ts));if(s<60)return s+'s ago';if(s<3600)return Math.round(s/60)+'m ago';return Math.round(s/3600)+'h ago';}
+function sigBars(rssi){if(rssi==null)return'';const pct=Math.max(0,Math.min(100,Math.round((rssi+90)/55*100)));const n=Math.max(1,Math.min(4,Math.ceil(pct/25)));let h='<span class="sig">';for(let i=1;i<=4;i++)h+=`<i class="${i<=n?'on':''}" style="height:${3+i*2.5}px"></i>`;return h+'</span>';}
+
+async function refresh(){
+  try{
+    const st=await (await fetch(API+'/api/status')).json();
+    armed=!!st.armed; lastErr=st.scan_errors||{};
+    el('s-src').textContent=(st.sources_active||[]).length+'/'+(st.sources||[]).length;
+    el('s-act').textContent=(st.actions||[]).length;
+    el('s-ctl').textContent=st.controllable!=null?st.controllable:'—';
+    const errs=Object.keys(lastErr).length;
+    el('log-c').textContent=st.scanning?'scanning…':(errs?errs+' source note(s)':'live');
+    const dv=await (await fetch(API+'/api/devices')).json();
+    DEVICES=dv.devices||[];
+    if((!selId||!dev())&&DEVICES.length) selId=(DEVICES.find(d=>!d.observe_only)||DEVICES[0]).id;
+    el('s-dev').textContent=DEVICES.length;
+    banner(); renderRoster(); renderCtl();
+  }catch(e){ log('Cannot reach engine — is device-reach running? '+e,'var(--rose)'); }
+}
+function banner(){
+  const b=el('banner');
+  if(armed){b.className='banner arm';b.innerHTML='<span class="pill">ARMED</span><span><b>Live control is ON.</b> Controllable devices will respond to the buttons. Passive discovery keeps running. Disarm to return to safe mode.</span>';}
+  else{b.className='banner dis';b.innerHTML='<span class="pill">DISARMED</span><span><b>Safe mode.</b> Passive discovery is running (read-only). Real devices are only commanded after you arm the panel below.</span>';}
+}
+function matchq(d){if(!query)return true;const q=query.toLowerCase();const hay=[d.name,d.kind,d.vendor,d.identifier,d.host,(d.sources||[]).join(' '),((d.meta||{}).services||[]).join(' ')].join(' ').toLowerCase();return hay.includes(q);}
+function renderRoster(){
+  const r=el('roster');r.innerHTML='';
+  const list=DEVICES.filter(matchq);
+  el('roster-c').textContent=list.length+(list.length!==DEVICES.length?'/'+DEVICES.length:'')+' nodes';
+  const byG={};list.forEach(d=>{(byG[d.category]=byG[d.category]||[]).push(d);});
+  GROUPS.concat(Object.keys(byG).filter(g=>!GROUPS.includes(g))).forEach(g=>{
+    const arr=byG[g];if(!arr||!arr.length)return;
+    const h=document.createElement('div');h.className='grp';h.innerHTML=`<span>${g}</span><span>${arr.length}</span>`;r.appendChild(h);
+    arr.forEach(d=>{
+      const s=d.state||{};const obs=d.observe_only;
+      const stc=obs?'obsdot':(s.power==='off'?'off':(s.playback==='playing'?'play':'on'));
+      const row=document.createElement('div');row.className='row'+(d.id===selId?' sel':'')+(obs?' obs':'');
+      const srcs=(d.sources||[d.driver]).slice(0,3).map(x=>`<span class="badge">${x}</span>`).join('');
+      const vend=d.vendor?`<span>${d.vendor}</span>`:'';
+      row.innerHTML=`<div class="ic">${icon(d)}</div>
+        <div class="meta"><div class="nm">${d.name}</div>
+        <div class="sl">${d.kind}${vend?' · ':''}${vend} ${srcs} <span class="badge ${obs?'obs':'ctl'}">${obs?'observe':(d.capabilities.length+' act')}</span></div></div>
+        <div class="right">${sigBars(d.rssi)}<span class="seen">${ago(d.last_seen)}</span></div>
+        <div class="st ${stc}"></div>`;
+      row.onclick=()=>{selId=d.id;renderRoster();renderCtl();};r.appendChild(row);
+    });
+  });
+  if(!list.length){const e=document.createElement('div');e.style.cssText='padding:16px;color:var(--muted);font-size:12px';e.textContent=DEVICES.length?'No matches for "'+query+'".':'Scanning the field…';r.appendChild(e);}
+}
+function renderCtl(){
+  const d=dev();const c=el('ctl');if(!d){c.innerHTML='<p style="color:var(--muted)">No devices in reach yet — scanning.</p>';return;}
+  const s=d.state||{};const caps=d.capabilities||[];const obs=d.observe_only;
+  const rssi=d.rssi;const rssiPct=rssi==null?null:Math.max(0,Math.min(100,Math.round((rssi+90)/55*100)));
+  if(obs){
+    c.innerHTML=`<div class="dev-head"><div><div class="title">${icon(d)} ${d.name}</div>
+      <div class="tags"><span class="tag">${d.kind}</span><span class="tag">${d.category}</span>${(d.sources||[d.driver]).map(x=>`<span class="tag">${x}</span>`).join('')}</div></div>
+      <div class="pwrtag obs">● OBSERVED</div></div>
+      <div class="kv">
+        <div class="k">Identifier</div><div class="v">${d.identifier||'—'}</div>
+        <div class="k">Vendor</div><div class="v">${d.vendor||'—'}</div>
+        <div class="k">Address</div><div class="v">${d.host||'—'}</div>
+        <div class="k">Signal</div><div class="v">${rssi!=null?rssi+' dBm ('+rssiPct+'%)':'—'}</div>
+        <div class="k">Services</div><div class="v">${((d.meta||{}).services||[]).join(', ')||((d.meta||{}).model||'—')}</div>
+        <div class="k">Last seen</div><div class="v">${ago(d.last_seen)||'—'}</div>
+      </div>
+      <div class="obsnote">👁 <b>Observed — no control actions.</b> This device is emitting and in reach, but exposes nothing to control. It still counts as reached on the field.</div>`;
+    return;
+  }
+  const canSend=caps.includes('send');const isSim=d.driver==='simulated';
+  c.innerHTML=`<div class="dev-head"><div><div class="title">${icon(d)} ${d.name}</div>
+    <div class="tags"><span class="tag">${d.kind}</span><span class="tag">driver: ${d.driver}</span><span class="tag">${caps.length} actions</span>${isSim?'<span class="tag">simulated</span>':'<span class="tag">real</span>'}${d.vendor?`<span class="tag">${d.vendor}</span>`:''}</div></div>
+    <div class="pwrtag ${s.power==='on'?'on':'off'}">● ${s.power==='on'?'ONLINE':'OFF'}</div></div>
+    <div class="meters">
+      <div class="meter"><div class="k"><span>VOLUME</span><span>${s.muted?'MUTED':(s.volume!=null?s.volume+'%':'—')}</span></div><div class="v">${s.muted?'🔇':(s.volume!=null?s.volume:'—')}</div><div class="bar"><i style="width:${s.muted?0:(s.volume||0)}%"></i></div></div>
+      <div class="meter"><div class="k"><span>SIGNAL</span><span>${rssi!=null?rssi+' dBm':'—'}</span></div><div class="v">${rssiPct!=null?rssiPct+'%':'—'}</div><div class="bar sg"><i style="width:${rssiPct||0}%"></i></div></div>
+    </div>
+    <div class="sect">Transport & power</div><div class="btns" id="btns"></div>
+    ${canSend?`<div class="sect">Send info to node</div><div class="send"><input id="payload" placeholder='{"msg":"hello"} or free text'/><button class="btn good" id="sendbtn"><span class="g">📡</span> SEND</button></div>`:''}
+    <div class="armbar"><div class="lt">${isSim?'<b>Simulated device</b> — safe to control anytime.':'<b>Real device.</b> Requires the panel to be armed.'} ${armed?'Panel is <b style="color:var(--rose)">ARMED</b>.':'Panel is <b style="color:var(--green)">DISARMED</b>.'}</div>
+      <button class="btn ${armed?'dang':'good'}" id="armbtn">${armed?'⏻ DISARM':'⚡ ARM REAL CONTROL'}</button></div>`;
+  const bb=el('btns');
+  BTN.forEach(b=>{if(!caps.includes(b.cap))return;const btn=document.createElement('button');btn.className='btn '+b.cls;btn.innerHTML=`<span class="g">${b.g}</span> ${b.label}`;
+    const needsOn=b.cap!=='power_on';if(needsOn&&s.power==='off')btn.disabled=true;if(b.cap==='power_on'&&s.power==='on')btn.disabled=true;
+    if(b.cap==='play'&&s.playback==='playing')btn.classList.add('act');if(b.cap==='pause'&&s.playback==='paused')btn.classList.add('act');
+    btn.onclick=()=>doAction(b.cap,b.label);bb.appendChild(btn);});
+  const sb=el('sendbtn');if(sb)sb.onclick=()=>{const v=el('payload').value.trim();if(!v){log('SEND skipped — empty','var(--dim)');return;}doAction('send','SEND',{payload:v});el('payload').value='';};
+  el('armbtn').onclick=toggleArm;
+}
+async function doAction(cap,label,params){
+  const d=dev();if(!d)return;
+  try{
+    const r=await fetch(API+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:d.id,action:cap,params:params||{}})});
+    const j=await r.json();
+    if(r.ok&&j.ok){const col=cap==='power_off'?'var(--rose)':cap==='power_on'?'var(--green)':cap.includes('volume')||cap==='mute'?'var(--amber)':'var(--cyan)';log(`${label} → ${d.name} · ${cap} · ok`,col);}
+    else if(r.status===423){log(`${label} → ${d.name} · blocked: panel is DISARMED (arm to control real devices)`,'var(--amber)');}
+    else if(r.status===400&&j.observe_only){log(`${d.name} is observe-only — nothing to control`,'var(--mag)');}
+    else{log(`${label} → ${d.name} · ${j.error||'failed'}`,'var(--rose)');}
+  }catch(e){log('Action failed — '+e,'var(--rose)');}
+  refresh();
+}
+async function toggleArm(){
+  if(!armed){ if(!confirm('ARM real device control?\n\nThis lets the buttons reach and control REAL devices on your network. Passive discovery is unaffected. Only do this on your own trusted network.')) return;
+    const r=await fetch(API+'/api/arm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+    log(r.ok?'⚡ ARMED — real control enabled.':'Arm failed.','var(--rose)');
+  } else { await fetch(API+'/api/disarm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}); log('⏻ DISARMED — back to safe mode.','var(--green)'); }
+  refresh();
+}
+el('q').addEventListener('input',e=>{query=e.target.value;renderRoster();});
+refresh(); setInterval(refresh,6000);
+log('Panel loaded — listening across every passive source.','var(--green)');
+</script>
+</body>
+</html>

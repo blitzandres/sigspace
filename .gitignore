@@ -9,3 +9,8 @@ worker/.wrangler/
 # device-reach local
 device-reach/.venv/
 device-reach/**/__pycache__/
+
+# device-reach runtime logs & scan results (never commit)
+reach.log
+device-reach/reach.log
+device-reach/**/reach_nodes.json

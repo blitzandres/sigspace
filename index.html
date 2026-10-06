@@ -224,7 +224,23 @@
     }
     @keyframes load { to { width: 100%; } }
 
+    #device-bar {
+      position: absolute; right: 16px; bottom: 150px; width: 232px;
+      display: none; flex-direction: column; gap: 8px; padding: 12px 14px;
+      font-family: var(--font-mono);
+    }
+    #device-bar .db-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #device-bar .db-k { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+    .db-toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 9px; color: var(--dim); cursor: pointer; }
+    .db-sw { width: 34px; height: 18px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid var(--stroke); position: relative; transition: background 0.15s; }
+    .db-sw::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--dim); transition: left 0.15s, background 0.15s; }
+    .db-sw.on { background: rgba(0,229,154,0.25); } .db-sw.on::after { left: 17px; background: var(--green); }
+    #device-bar .db-state { font-size: 10px; color: var(--amber); line-height: 1.45; }
+    #device-bar .db-link { font-size: 10px; letter-spacing: 0.08em; color: var(--cyan); }
+    #device-bar .db-link:hover { text-decoration: underline; }
+
     @media (max-width: 900px) {
+      #device-bar { position: static; width: 100%; margin-top: 10px; }
       #dial { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       #channel { left: 16px; top: 270px; width: calc(100vw - 32px); }
       #hint { display: none; }
@@ -271,6 +287,14 @@
       </div>
     </div>
     <div id="hint">← → switch realm<br>Click a node to inspect<br>Professional field tools, game-clear feedback</div>
+    <div id="device-bar" class="panel">
+      <div class="db-row">
+        <span class="db-k">DEVICE REACH</span>
+        <label class="db-toggle" title="Live needs the local device-reach companion, armed on your computer">PREVIEW<span class="db-sw" id="db-sw"></span>LIVE</label>
+      </div>
+      <div class="db-state" id="db-state">Safe preview · mock devices · nothing connected</div>
+      <a class="db-link" href="preview/device-reach.html">OPEN CONTROL PANEL ↗</a>
+    </div>
   </div>
   <script>
 
@@ -311,6 +335,20 @@
       { id:'close',   label:'CLOSE',   color:'#FFAA00' },
     ];
     const DEVICE_REACH = 'http://127.0.0.1:5070';
+    // Per-connection control buttons, shown only for devices that advertise the capability.
+    const DEVICE_ACTIONS = [
+      { cap:'play',        label:'▶ PLAY',  color:'#00D4FF' },
+      { cap:'pause',       label:'⏸ PAUSE', color:'#D0E0F0' },
+      { cap:'stop',        label:'⏹ STOP',  color:'#FFAA00' },
+      { cap:'prev',        label:'⏮ PREV',  color:'#D0E0F0' },
+      { cap:'next',        label:'⏭ NEXT',  color:'#D0E0F0' },
+      { cap:'volume_down', label:'🔉 VOL−', color:'#00E59A' },
+      { cap:'volume_up',   label:'🔊 VOL+', color:'#00E59A' },
+      { cap:'mute',        label:'🔇 MUTE', color:'#FFAA00' },
+      { cap:'launch',      label:'🚀 LAUNCH', color:'#00D4FF' },
+      { cap:'power_on',    label:'⏻ POWER ON', color:'#00E59A' },
+      { cap:'send',        label:'📡 SEND', color:'#00E59A' },
+    ];
 
     const S = {
       W:0, H:0, cx:0, cy:0, freq:0,
@@ -323,6 +361,8 @@
       blocked: new Set(JSON.parse(localStorage.getItem('sigspace-blocked') || '[]')),
       channels: {},
       channelIdx: null,
+      deviceLive: false,
+      deviceArmed: false,
     };
     const THREAT_BLOCK = 25;
 
@@ -441,6 +481,7 @@
         deviceId: d.deviceId || '',
         canPowerOff: !!d.canPowerOff,
         driver: d.driver || '',
+        capabilities: d.capabilities || [],
       }));
       S.nodes.forEach(n => { if (n.blocked) { n.active = false; n.color = '#FF3366'; } });
       addLog('FIELD LOCK  ' + DC.names[S.freq], DC.freq[S.freq]);
@@ -559,6 +600,69 @@
       [...actionsEl.querySelectorAll('button')].forEach(btn => {
         btn.onclick = () => executeAction(btn.dataset.act, idx);
       });
+      if (S.freq === 5 && !isSuspicious(node) && (node.capabilities || []).length) {
+        DEVICE_ACTIONS.filter(a => node.capabilities.includes(a.cap)).forEach(a => {
+          const btn = document.createElement('button');
+          btn.style.color = a.color;
+          btn.textContent = a.label;
+          btn.onclick = () => executeDeviceAction(a.cap, idx);
+          actionsEl.appendChild(btn);
+        });
+      }
+    }
+
+    function executeDeviceAction(cap, idx) {
+      let params = {};
+      if (cap === 'send') {
+        const payload = window.prompt('Payload to send to this device/node:', '');
+        if (payload == null || payload === '') return;
+        params = { payload };
+      } else if (cap === 'launch') {
+        const app = window.prompt('App id to launch:', '');
+        if (app == null || app === '') return;
+        params = { app };
+      }
+      sendDeviceAction(idx, cap, params);
+      if (cap !== 'send' && cap !== 'launch') { S.selected = null; hideActions(); }
+    }
+
+    async function sendDeviceAction(idx, action, params) {
+      const node = S.nodes[idx];
+      if (!node) return;
+      if (isSuspicious(node) || !node.deviceId) {
+        addLog('ACTION DENIED  ' + (node ? node.label : '?'), '#FF3366');
+        if (node && isSuspicious(node)) blockNode(idx, 'suspicion');
+        return;
+      }
+      const label = (DEVICE_ACTIONS.find(a => a.cap === action) || {}).label || action.toUpperCase();
+      // Safe default: PREVIEW mode never touches the network — simulate locally.
+      if (!S.deviceLive) {
+        addLog(label + ' (sim) → ' + node.label, '#00D4FF');
+        node.flash = 18; node.flashCol = '#00D4FF'; node.msgBeam = 32;
+        if (action === 'power_off') { node.active = false; node.sublabel = (node.sublabel || '') + '  ·  OFF'; }
+        return;
+      }
+      addLog(label + ' → ' + node.label, '#FFAA00');
+      node.flash = 24; node.flashCol = '#FFAA00'; node.msgBeam = 40;
+      try {
+        const r = await Promise.race([
+          fetch(DEVICE_REACH + '/api/action', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: node.deviceId, action, params: params || {} }),
+          }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+        ]);
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 423) { addLog('DISARMED — arm device-reach to control real devices', '#FF3366'); return; }
+        if (r.ok && d.ok) {
+          addLog((label + ' OK  ' + node.label + (d.driver ? '  ·  ' + d.driver : '')).trim(), '#00FF88');
+          if (action === 'power_off') { node.active = false; node.sublabel = (node.sublabel || '') + '  ·  OFF'; }
+        } else {
+          addLog('ACTION FAIL  ' + (d.error || d.note || node.label), '#FF3366');
+        }
+      } catch (e) {
+        addLog('ACTION FAIL  device-reach offline', '#FF3366');
+      }
     }
 
     function executeAction(actionId, nodeIdx) {
@@ -915,6 +1019,8 @@
       else if (f===3) await loadBluetooth();
       else if (f===4) await loadThreat();
       else if (f===5) await loadDevices();
+      const db = document.getElementById('device-bar');
+      if (db) db.style.display = (f===5) ? 'flex' : 'none';
     }
 
     function countryFlag(code) {
@@ -923,65 +1029,58 @@
     }
 
 
-    async function powerOffNode(idx) {
+    function powerOffNode(idx) {
       const node = S.nodes[idx];
       if (!node) return;
-      if (isSuspicious(node) || !node.canPowerOff || !node.deviceId) {
-        addLog('POWER DENIED  ' + (node ? node.label : '?'), '#FF3366');
-        if (node && isSuspicious(node)) blockNode(idx, 'suspicion');
-        return;
-      }
-      addLog('POWER OFF → ' + node.label, '#FFAA00');
-      node.flash = 28; node.flashCol = '#FFAA00'; node.msgBeam = 45;
-      try {
-        const r = await Promise.race([
-          fetch(DEVICE_REACH + '/api/poweroff', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: node.deviceId }),
-          }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
-        ]);
-        const d = await r.json().catch(() => ({}));
-        if (r.ok && d.ok) {
-          addLog('POWERED DOWN  ' + node.label + (d.driver ? '  ·  ' + d.driver : ''), '#00FF88');
-          node.active = false;
-          node.sublabel = (node.sublabel || '') + '  ·  OFF';
-        } else {
-          addLog('POWER FAIL  ' + (d.error || d.note || node.label), '#FF3366');
-        }
-      } catch (e) {
-        addLog('POWER FAIL  device-reach offline', '#FF3366');
-      }
+      if (!node.canPowerOff) { addLog('POWER DENIED  ' + node.label, '#FF3366'); return; }
+      sendDeviceAction(idx, 'power_off', {});
     }
+
+    // Safe mock field used in PREVIEW mode (default). Mirrors device-reach capabilities.
+    const MOCK_DEVICES = [
+      { id:'sim:living-room-tv', name:'Living Room TV (sim)', kind:'tv', driver:'samsung',
+        capabilities:['power_off','power_on','play','pause','stop','volume_up','volume_down','mute','launch'] },
+      { id:'sim:bedroom-roku', name:'Bedroom Roku (sim)', kind:'tv', driver:'roku',
+        capabilities:['power_off','play','pause','stop','next','prev','volume_up','volume_down','mute','launch'] },
+      { id:'sim:soundbar', name:'Soundbar (sim)', kind:'media', driver:'upnp',
+        capabilities:['play','pause','stop','next','prev','volume_up','volume_down'] },
+      { id:'sim:office-cast', name:'Office Cast (sim)', kind:'media', driver:'cast',
+        capabilities:['play','pause','stop','next','prev','volume_up','volume_down','mute'] },
+      { id:'sim:desk-lamp-node', name:'Desk Lamp Node (sim)', kind:'node', driver:'http',
+        capabilities:['power_off','power_on','send'] },
+      { id:'sim:lab-host', name:'Lab Host (sim)', kind:'host', driver:'wol',
+        capabilities:['power_on','send'] },
+    ];
 
     async function loadDevices() {
       let devices = [];
-      try {
-        const r = await Promise.race([
-          fetch(DEVICE_REACH + '/api/devices'),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500)),
-        ]);
-        if (r.ok) {
-          const d = await r.json();
-          devices = (d.devices || []).slice(0, 14);
-        }
-      } catch (e) {}
-      if (!devices.length) {
-        devices = [
-          { id: 'sim:living-room-tv', name: 'Living Room TV (sim)', kind: 'tv', driver: 'simulated', can_power_off: true },
-          { id: 'sim:samsung', name: 'Samsung TV (sim)', kind: 'tv', driver: 'simulated', can_power_off: true },
-          { id: 'sim:soundbar', name: 'Soundbar (sim)', kind: 'media', driver: 'simulated', can_power_off: true },
-        ];
+      let armed = false;
+      // PREVIEW is the default: no network touched. LIVE must be switched on explicitly.
+      if (S.deviceLive) {
+        try {
+          const r = await Promise.race([
+            fetch(DEVICE_REACH + '/api/devices'),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500)),
+          ]);
+          if (r.ok) {
+            const d = await r.json();
+            devices = (d.devices || []).slice(0, 16);
+            armed = !!d.armed;
+          }
+        } catch (e) {}
       }
+      const preview = !devices.length;
+      if (preview) devices = MOCK_DEVICES;
+      S.deviceArmed = armed;
       const c = DC.freq[5];
       spawnNodes(devices.map((d, i) => {
         const label = d.name || d.id || 'device';
         const driver = d.driver || '?';
-        const can = d.can_power_off !== false;
+        const caps = d.capabilities || [];
+        const can = (d.can_power_off !== false) && (!caps.length || caps.includes('power_off'));
         return {
           label: label.length > 20 ? label.slice(0, 20) + '…' : label,
-          sublabel: (d.kind || 'device') + '  ·  ' + driver + (can ? '' : '  ·  NO PWR'),
+          sublabel: (d.kind || 'device') + '  ·  ' + driver + (caps.length ? '  ·  ' + caps.length + ' act' : ''),
           color: driver === 'samsung' ? '#00D4FF' : c,
           size: d.kind === 'tv' ? 11 : 7,
           speed: 0.002 + i * 0.00025,
@@ -989,10 +1088,40 @@
           canPowerOff: can,
           driver,
           ip: d.host || '',
+          capabilities: caps,
         };
       }));
-      addLog('DEVICE FIELD  ' + devices.length + ' in reach', c);
+      if (preview) addLog('DEVICE FIELD  ' + devices.length + ' (PREVIEW · mock)', c);
+      else addLog('DEVICE FIELD  ' + devices.length + ' in reach' + (armed ? '  ·  ARMED' : '  ·  disarmed'), armed ? '#00FF88' : '#FFAA00');
+      updateDeviceBar();
     }
+
+    function updateDeviceBar() {
+      const sw = document.getElementById('db-sw');
+      const st = document.getElementById('db-state');
+      if (sw) sw.classList.toggle('on', S.deviceLive);
+      if (!st) return;
+      if (!S.deviceLive) st.textContent = 'Safe preview · mock devices · nothing connected';
+      else if (S.deviceArmed) st.textContent = 'LIVE · device-reach ARMED · real control enabled';
+      else st.textContent = 'LIVE · device-reach offline or disarmed · arm it locally';
+      st.style.color = (!S.deviceLive || S.deviceArmed) ? (S.deviceLive ? '#00FF88' : '#FFAA00') : '#FFAA00';
+    }
+
+    (function wireDeviceBar() {
+      const sw = document.getElementById('db-sw');
+      if (!sw) return;
+      sw.addEventListener('click', () => {
+        if (!S.deviceLive) {
+          const ok = window.confirm('Turn ON live mode?\n\nThis asks the local device-reach companion on THIS computer to discover and control real devices. It does nothing on the public website, and device-reach stays safe-by-default until you arm it there.');
+          if (!ok) return;
+          S.deviceLive = true;
+        } else {
+          S.deviceLive = false;
+        }
+        updateDeviceBar();
+        if (S.freq === 5) loadRealm(5);
+      });
+    })();
 
     async function loadCarrier() {
       const geo = S.data.carrier || await fetchGeo();
