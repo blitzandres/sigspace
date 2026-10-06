@@ -1,3 +1,8 @@
+# Core (required)
 flask>=3.0
 requests>=2.31
-websocket-client>=1.8
+websocket-client>=1.7   # Samsung Tizen websocket remote
+
+# Optional (install only if you use these connection types)
+# pychromecast>=14        # Google Cast / Chromecast control
+# paho-mqtt>=2.0          # if you extend http nodes to MQTT

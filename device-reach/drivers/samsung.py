@@ -7,7 +7,11 @@ from urllib.parse import urlparse
 
 import requests
 
-from .base import Device, Driver
+from .base import (
+    Device, Driver,
+    CAP_POWER_OFF, CAP_PLAY, CAP_PAUSE, CAP_STOP, CAP_NEXT, CAP_PREV,
+    CAP_VOLUME_UP, CAP_VOLUME_DOWN, CAP_MUTE, CAP_KEY, CAP_SEND,
+)
 
 try:
     import websocket  # websocket-client
@@ -25,6 +29,24 @@ SSDP = (
 
 APP_NAME_B64 = base64.b64encode(b"SIGSPACE").decode()
 
+# Samsung Tizen remote key names (reverse-engineered WS protocol; see samsung-tv-ws-api).
+KEY_MAP = {
+    CAP_POWER_OFF: "KEY_POWER",
+    CAP_PLAY: "KEY_PLAY",
+    CAP_PAUSE: "KEY_PAUSE",
+    CAP_STOP: "KEY_STOP",
+    CAP_NEXT: "KEY_FF",
+    CAP_PREV: "KEY_REWIND",
+    CAP_VOLUME_UP: "KEY_VOLUP",
+    CAP_VOLUME_DOWN: "KEY_VOLDOWN",
+    CAP_MUTE: "KEY_MUTE",
+}
+CAPS = [CAP_POWER_OFF, CAP_PLAY, CAP_PAUSE, CAP_STOP, CAP_NEXT, CAP_PREV,
+        CAP_VOLUME_UP, CAP_VOLUME_DOWN, CAP_MUTE, CAP_KEY, CAP_SEND]
+
+ALLOW_NOTE = ("On the TV: Settings → General → External Device Manager → "
+              "Device Connect Manager → allow SIGSPACE.")
+
 
 class SamsungDriver(Driver):
     name = "samsung"
@@ -36,7 +58,6 @@ class SamsungDriver(Driver):
             if not host:
                 continue
             self._add(found, host, loc)
-        # light local probe of common LAN prefixes when SSDP is quiet
         if not found:
             for host in self._guess_hosts():
                 if self._alive(host):
@@ -47,80 +68,76 @@ class SamsungDriver(Driver):
         name = self._name(host) or f"Samsung TV {host}"
         did = f"samsung:{host}"
         found[did] = Device(
-            id=did,
-            name=name,
-            kind="tv",
-            driver=self.name,
-            host=host,
-            port=8001,
-            meta={"location": loc, "brand": "Samsung"},
+            id=did, name=name, kind="tv", driver=self.name, host=host, port=8001,
+            capabilities=CAPS, meta={"location": loc, "brand": "Samsung"},
         )
 
     def power_off(self, device: Device) -> dict:
-        # Prefer websocket remote control (works on many Tizen sets after one-time Allow).
-        ws_result = self._ws_power(device.host)
-        if ws_result.get("ok"):
-            return ws_result
-        # REST fallbacks
-        attempts = [
-            ("POST", f"http://{device.host}:8001/api/v2/channels/samsung.remote.control", {
-                "method": "ms.remote.control",
-                "params": {
-                    "Cmd": "Click",
-                    "DataOfCmd": "KEY_POWER",
-                    "Option": "false",
-                    "TypeOfRemote": "SendRemoteKey",
-                },
-            }),
-            ("PUT", f"http://{device.host}:8001/api/v2/", {"power": False}),
-        ]
-        last_err = ws_result.get("error")
-        for method, url, body in attempts:
-            try:
-                r = requests.request(method, url, json=body, timeout=3)
-                if r.status_code < 500:
-                    return {
-                        "ok": r.status_code < 400,
-                        "driver": self.name,
-                        "status": r.status_code,
-                        "action": "KEY_POWER",
-                        "note": "Accept the Allow prompt on the TV the first time.",
-                        "ws": ws_result,
-                    }
-            except Exception as e:
-                last_err = str(e)
-        return {
-            "ok": False,
-            "driver": self.name,
-            "error": last_err or "no endpoint accepted",
-            "note": "On the TV: Settings → General → External Device Manager → Device Connect Manager → allow SIGSPACE.",
-        }
+        return self.send_action(device, CAP_POWER_OFF)
 
-    def _ws_power(self, host: str) -> dict:
+    def send_action(self, device: Device, action: str, params: dict | None = None) -> dict:
+        params = params or {}
+        if action == CAP_SEND:
+            text = str(params.get("payload") or params.get("text") or "")
+            if not text:
+                return {"ok": False, "driver": self.name, "error": "send needs params.payload"}
+            return self._ws_text(device.host, text)
+        key = params.get("key") if action == CAP_KEY else KEY_MAP.get(action)
+        if not key:
+            return {"ok": False, "driver": self.name, "error": f"unsupported action '{action}'"}
+        return self._send_key(device.host, key, action)
+
+    def _send_key(self, host: str, key: str, action: str) -> dict:
+        ws_result = self._ws_cmd(host, {
+            "method": "ms.remote.control",
+            "params": {"Cmd": "Click", "DataOfCmd": key,
+                       "Option": "false", "TypeOfRemote": "SendRemoteKey"},
+        })
+        if ws_result.get("ok"):
+            ws_result["action"] = action
+            ws_result["key"] = key
+            return ws_result
+        # REST fallback (older sets).
+        try:
+            r = requests.post(
+                f"http://{host}:8001/api/v2/channels/samsung.remote.control",
+                json={"method": "ms.remote.control",
+                      "params": {"Cmd": "Click", "DataOfCmd": key,
+                                 "Option": "false", "TypeOfRemote": "SendRemoteKey"}},
+                timeout=3)
+            if r.status_code < 500:
+                return {"ok": r.status_code < 400, "driver": self.name, "status": r.status_code,
+                        "action": action, "key": key, "note": ALLOW_NOTE, "ws": ws_result}
+        except Exception as e:
+            ws_result.setdefault("error", str(e))
+        return {"ok": False, "driver": self.name, "action": action, "key": key,
+                "error": ws_result.get("error") or "no endpoint accepted", "note": ALLOW_NOTE}
+
+    def _ws_text(self, host: str, text: str) -> dict:
+        b64 = base64.b64encode(text.encode()).decode()
+        res = self._ws_cmd(host, {
+            "method": "ms.remote.control",
+            "params": {"Cmd": b64, "TypeOfRemote": "SendInputString",
+                       "DataOfCmd": "base64"},
+        })
+        res["action"] = CAP_SEND
+        res["note"] = res.get("note") or "Text sent to the focused on-screen field."
+        return res
+
+    def _ws_cmd(self, host: str, payload: dict) -> dict:
         if websocket is None:
-            return {"ok": False, "error": "websocket-client not installed"}
+            return {"ok": False, "driver": self.name, "error": "websocket-client not installed"}
         paths = [
             f"ws://{host}:8001/api/v2/channels/samsung.remote.control?name={APP_NAME_B64}",
             f"wss://{host}:8002/api/v2/channels/samsung.remote.control?name={APP_NAME_B64}",
         ]
-        payload = {
-            "method": "ms.remote.control",
-            "params": {
-                "Cmd": "Click",
-                "DataOfCmd": "KEY_POWER",
-                "Option": "false",
-                "TypeOfRemote": "SendRemoteKey",
-            },
-        }
         last = None
         for url in paths:
             try:
                 ws = websocket.create_connection(url, timeout=4, sslopt={"cert_reqs": 0})
                 try:
-                    # read greeting if any
                     try:
-                        ws.settimeout(1.5)
-                        ws.recv()
+                        ws.settimeout(1.5); ws.recv()
                     except Exception:
                         pass
                     ws.send(json.dumps(payload))
@@ -128,15 +145,9 @@ class SamsungDriver(Driver):
                         reply = ws.recv()
                     except Exception:
                         reply = ""
-                    return {
-                        "ok": True,
-                        "driver": self.name,
-                        "action": "KEY_POWER",
-                        "transport": "websocket",
-                        "url": url.split("?")[0],
-                        "reply": (reply or "")[:200],
-                        "note": "Accept Allow on the TV once if prompted.",
-                    }
+                    return {"ok": True, "driver": self.name, "transport": "websocket",
+                            "url": url.split("?")[0], "reply": (reply or "")[:200],
+                            "note": "Accept Allow on the TV once if prompted."}
                 finally:
                     ws.close()
             except Exception as e:
@@ -161,14 +172,11 @@ class SamsungDriver(Driver):
             return False
 
     def _guess_hosts(self) -> list[str]:
-        # Probe .1/.2 gateway neighborhoods from local interfaces when possible.
         hosts: list[str] = []
         try:
-            hostname = socket.gethostname()
-            local = socket.gethostbyname(hostname)
+            local = socket.gethostbyname(socket.gethostname())
             if local and not local.startswith("127."):
                 prefix = ".".join(local.split(".")[:3])
-                # small window around common DHCP leases
                 for i in list(range(2, 30)) + list(range(100, 120)):
                     hosts.append(f"{prefix}.{i}")
         except Exception:

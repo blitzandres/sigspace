@@ -5,7 +5,10 @@ from urllib.parse import urlparse
 
 import requests
 
-from .base import Device, Driver
+from .base import (
+    Device, Driver,
+    CAP_PLAY, CAP_PAUSE, CAP_STOP, CAP_NEXT, CAP_PREV,
+)
 
 SSDP = (
     "M-SEARCH * HTTP/1.1\r\n"
@@ -16,14 +19,27 @@ SSDP = (
     "\r\n"
 )
 
-STOP_SOAP = """<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-  <s:Body>
-    <u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-      <InstanceID>0</InstanceID>
-    </u:Stop>
-  </s:Body>
-</s:Envelope>"""
+AVT = "urn:schemas-upnp-org:service:AVTransport:1"
+
+# action -> (SOAP action name, extra XML args)
+SOAP_ACTIONS = {
+    CAP_PLAY:  ("Play", "<Speed>1</Speed>"),
+    CAP_PAUSE: ("Pause", ""),
+    CAP_STOP:  ("Stop", ""),
+    CAP_NEXT:  ("Next", ""),
+    CAP_PREV:  ("Previous", ""),
+}
+CAPS = [CAP_PLAY, CAP_PAUSE, CAP_STOP, CAP_NEXT, CAP_PREV]
+
+
+def _envelope(action: str, extra: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+        's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
+        f'<u:{action} xmlns:u="{AVT}"><InstanceID>0</InstanceID>{extra}</u:{action}>'
+        '</s:Body></s:Envelope>'
+    )
 
 
 class UpnpDriver(Driver):
@@ -38,38 +54,32 @@ class UpnpDriver(Driver):
                 continue
             did = f"upnp:{host}:{port}"
             found[did] = Device(
-                id=did,
-                name=f"MediaRenderer {host}",
-                kind="media",
-                driver=self.name,
-                host=host,
-                port=port,
-                meta={"location": loc},
+                id=did, name=f"MediaRenderer {host}", kind="media", driver=self.name,
+                host=host, port=port, capabilities=CAPS, meta={"location": loc},
             )
         return list(found.values())
 
     def power_off(self, device: Device) -> dict:
+        # UPnP AVTransport has no power-off; Stop is the safe equivalent.
+        return self.send_action(device, CAP_STOP)
+
+    def send_action(self, device: Device, action: str, params: dict | None = None) -> dict:
+        spec = SOAP_ACTIONS.get(action)
+        if not spec:
+            return {"ok": False, "driver": self.name, "error": f"unsupported action '{action}'"}
         loc = (device.meta or {}).get("location")
         if not loc:
             return {"ok": False, "driver": self.name, "error": "missing location"}
         control = loc.rsplit("/", 1)[0] + "/MediaRenderer/AVTransport/Control"
+        soap_action, extra = spec
         try:
             r = requests.post(
-                control,
-                data=STOP_SOAP,
-                headers={
-                    "Content-Type": 'text/xml; charset="utf-8"',
-                    "SOAPACTION": '"urn:schemas-upnp-org:service:AVTransport:1#Stop"',
-                },
-                timeout=3,
-            )
-            return {
-                "ok": r.status_code < 400,
-                "driver": self.name,
-                "status": r.status_code,
-                "action": "AVTransport.Stop",
-                "note": "Stops media. Full power-off depends on the device.",
-            }
+                control, data=_envelope(soap_action, extra),
+                headers={"Content-Type": 'text/xml; charset="utf-8"',
+                         "SOAPACTION": f'"{AVT}#{soap_action}"'},
+                timeout=3)
+            return {"ok": r.status_code < 400, "driver": self.name, "status": r.status_code,
+                    "action": action, "soap": soap_action}
         except Exception as e:
             return {"ok": False, "driver": self.name, "error": str(e)}
 
